@@ -91,7 +91,7 @@ jobs:
           export STRIP="$TOOLCHAIN/bin/llvm-strip"
           export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           echo "CC=$CC"; echo "AR=$AR"
-          make -j$(nproc) CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" qjs
+          make -j$(nproc) CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" LIBS="-lm" qjs
           ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           "$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true

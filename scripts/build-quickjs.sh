@@ -51,11 +51,9 @@ export CC="$TOOLCHAIN/bin/clang --target=aarch64-linux-android${API}"
 export AR="$TOOLCHAIN/bin/llvm-ar"
 export STRIP="$TOOLCHAIN/bin/llvm-strip"
 export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
-
 echo "TOOLCHAIN=$TOOLCHAIN"
 echo "CC=$CC"
-make -j"$(nproc)" CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" qjs
-
+make -j"$(nproc)" CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" LIBS="-lm" qjs
 file qjs
 "$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true
 file qjs | grep -qi "aarch64" || (echo "Not aarch64" && exit 1)

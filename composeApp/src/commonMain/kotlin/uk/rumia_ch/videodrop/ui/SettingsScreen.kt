@@ -35,7 +35,11 @@ import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
 @Composable
 fun SettingsScreen(
     viewModel: VideoDropViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    // Download location picker (Android SAF) — provided by App's androidMain
+    downloadRootDisplay: String = "内部ストレージ (cacheDir)",
+    onPickDownloadFolder: (() -> Unit)? = null,
+    onResetToInternal: (() -> Unit)? = null
 ) {
     val status by viewModel.runtimeStatus.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
@@ -54,6 +58,48 @@ fun SettingsScreen(
         Text("設定", style = MaterialTheme.typography.headlineSmall, color = ClipboxColors.TextPrimary)
         Spacer(Modifier.height(4.dp))
         Text("バージョン: ${try { getAppVersion() } catch (_: Exception) { "1.0.0" }}  (日付ベース yyyy.MM.dd)", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+        Spacer(Modifier.height(16.dp))
+
+        // Download destination folder — single root, user creates subfolders inside
+        Card(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("保存先フォルダ", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                Text("最初に1つだけ指定。マイコレクションではその中に自由にフォルダを作成できます。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Spacer(Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("現在の保存先:", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                        Text(downloadRootDisplay, style = MaterialTheme.typography.bodyMedium, color = ClipboxColors.TextPrimary)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (onPickDownloadFolder != null) {
+                    Button(
+                        onClick = onPickDownloadFolder,
+                        colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("保存先フォルダを選択 (SDカード対応)") }
+                    Spacer(Modifier.height(8.dp))
+                    Text("SDカードや外部ストレージを選ぶと、SAFで永続的にアクセスが許可されます。深い階層から選ぶ必要はなく、ルート1つを選べばOK。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    if (onResetToInternal != null) {
+                        Button(
+                            onClick = onResetToInternal,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("内部ストレージに戻す") }
+                    }
+                } else {
+                    Text("保存先の変更はAndroid版で利用できます", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                }
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
 
         // App update section - GitHub Releases
@@ -104,9 +150,9 @@ fun SettingsScreen(
                         CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                         Text("確認中...", style = MaterialTheme.typography.bodySmall)
                     }
-                    is UpdateState.UpToDate -> Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)), modifier = Modifier.fillMaxWidth()) {
-                        Text("✅ 最新です (${s.let { (updateState as? UpdateState.Available)?.let { it } } ?: ""}現在が最新)", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, color = Color(0xFF065F46))
-                        Text("現在 ${try { getAppVersion() } catch (_: Exception) { "1.0.0" }} が最新です", modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp), style = MaterialTheme.typography.bodySmall)
+                    is UpdateState.UpToDate -> {
+                        Text("✅ 最新です", style = MaterialTheme.typography.bodySmall, color = Color(0xFF065F46))
+                        Text("現在 ${try { getAppVersion() } catch (_: Exception) { "1.0.0" }} が最新です", style = MaterialTheme.typography.bodySmall)
                     }
                     is UpdateState.Available -> {
                         val info = s.info
@@ -132,15 +178,13 @@ fun SettingsScreen(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) { Text("APKをダウンロード") }
-                                Text("ダウンロード後、ファイルを開いてインストールしてください (提供元不明のアプリを許可が必要な場合あり)", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
-                                // For Android direct install, MainActivity can intercept downloadUrl via ApkUpdateInstaller (requires REQUEST_INSTALL_PACKAGES)
-                                // Simple browser download is used for MVP to keep commonMain pure
+                                Text("ダウンロード後、ファイルを開いてインストールしてください", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
                             }
                         }
                     }
                     is UpdateState.Error -> {
                         Text("❌ エラー: ${s.message}", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB91C1C))
-                        Text("リポジトリが存在しない、リリースがまだ無い、またはネットワークエラーです。GitHub APIは未認証で60回/時制限があります。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                        Text("リポジトリが存在しない、リリースがまだ無い、またはネットワークエラーです。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                     }
                 }
             }
@@ -149,9 +193,8 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
 
         Text("再生・保存", style = MaterialTheme.typography.titleSmall, color = ClipboxColors.TextPrimary)
-        Text("Default quality: Best (video+audio merge)", style = MaterialTheme.typography.bodyMedium)
-        Text("Output type: Video / Audio (選択式)", style = MaterialTheme.typography.bodyMedium)
-        Text("Destination: Movies / Music (via MediaStore)", style = MaterialTheme.typography.bodyMedium)
+        Text("保存先フォルダ配下に動画/音楽を保存。サブフォルダはマイコレクションで自由に作成できます。", style = MaterialTheme.typography.bodyMedium)
+        Text("Destination: 選択した保存先フォルダ (SDカード対応)", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(16.dp))
 
         Button(onClick = { viewModel.refreshRuntime() }) { Text("ランタイム情報を更新") }
@@ -171,7 +214,7 @@ fun SettingsScreen(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text("対応サイト: yt-dlpがサポートする約1800サイト (YouTube/ニコニコ/X等)。外部ブラウザ連携でログイン状態を共有。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+        Text("対応サイト: yt-dlpがサポートする約1800サイト。外部ブラウザ連携でログイン状態を共有。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
         Button(onClick = onBack, modifier = Modifier.padding(top = 16.dp)) { Text("戻る") }
     }
 }
