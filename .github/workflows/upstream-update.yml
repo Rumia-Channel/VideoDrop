@@ -215,13 +215,50 @@ jobs:
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
 
-      - name: FFmpeg verification (Android arm64)
+      - name: Cache FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ffmpeg
+          key: ffmpeg-${{ env.NDK_VERSION }}-arm64-v8a-static
+          restore-keys: |
+            ffmpeg-
+
+      - name: Build FFmpeg arm64-v8a (full GPL static PIE)
         run: |
           set -eux
-          FF_VER=$(python3 -c "import json; print(json.load(open('config/upstream-versions.json'))['ffmpeg']['version'])")
-          echo "FFmpeg version from config: $FF_VER"
-          git ls-remote --tags https://github.com/FFmpeg/FFmpeg.git | grep -E "refs/tags/n${FF_VER}($|\\^)" | head -n 5
-          echo "FFmpeg tag verification PASS (full build on demand)"
+          sudo apt-get update -q && sudo apt-get install -y -q yasm nasm pkg-config
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          if [ ! -d "$TOOLCHAIN" ]; then TOOLCHAIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64"; fi
+          CC="$TOOLCHAIN/bin/aarch64-linux-android24-clang"
+          if [ ! -x "$CC" ]; then CC=$(find "$TOOLCHAIN/bin" -name "aarch64-linux-android24-clang" -type f | head -n1); fi
+
+          if [ ! -d /tmp/ffmpeg/.git ]; then
+            git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg
+          fi
+          cd /tmp/ffmpeg
+
+          ./configure \
+            --enable-cross-compile \
+            --target-os=android --arch=aarch64 --cpu=armv8-a \
+            --cc="$CC" --ld="$CC" \
+            --ar="$TOOLCHAIN/bin/llvm-ar" \
+            --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
+            --nm="$TOOLCHAIN/bin/llvm-nm" \
+            --strip="$TOOLCHAIN/bin/llvm-strip" \
+            --enable-gpl --enable-version3 \
+            --enable-static --disable-shared \
+            --enable-small --disable-doc --disable-debug \
+            --prefix=/tmp/ffmpeg/install
+          make -j$(nproc)
+          make install
+
+          mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
+          cp -v /tmp/ffmpeg/install/bin/ffmpeg "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so"
+          cp -v /tmp/ffmpeg/install/bin/ffprobe "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+          chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so" "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+          ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
+          file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so" "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+
 
       - name: Android verification
         run: |
@@ -292,6 +329,22 @@ jobs:
           - yt-dlp integration: PASS
           "
           git push --force-with-lease origin "$BRANCH" || git push origin "$BRANCH"
+
+      - name: Create date tag (triggers release build)
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          set -eux
+          # Date-based tag: vYYYY.MM.dX (X = revision for same day)
+          BASE_TAG="v$(date +%Y.%m.%d)"
+          TAG="$BASE_TAG"
+          REV=1
+          while git rev-parse "$TAG" >/dev/null 2>&1; do
+            TAG="${BASE_TAG}.${REV}"
+            REV=$((REV + 1))
+          done
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed tag: $TAG"
 
       - name: Create Pull Request
         if: steps.commit.outputs.changed == 'true'
