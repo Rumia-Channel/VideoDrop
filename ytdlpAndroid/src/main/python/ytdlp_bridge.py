@@ -1,10 +1,11 @@
 """
-ytdlp_bridge.py - Python bridge for yt-dlp per spec sections 7-8, 14-15, 20.
+ytdlp_bridge.py - Python bridge for yt-dlp per spec sections 7-8, 14-15, 20, 22.
 Responsibilities per spec:
 - YoutubeDL, extract_info, format selection, download, progress_hook, postprocessor hook
 - Exception normalization -> JSON
 - JSON string transport (no PyObject leak)
 - No Android API touch
+- Default browser cookie hook (not Chrome-limited)
 """
 
 import json
@@ -12,6 +13,7 @@ import traceback
 
 _runtime = {}
 _cancel_flags = set()
+_cookies_config = {"from_browser": None, "cookies_file": None}
 
 
 def version():
@@ -29,8 +31,22 @@ def initialize(qjs_path, ffmpeg_dir):
     return json.dumps({"qjs": qjs_path, "ffmpeg": ffmpeg_dir})
 
 
+def set_cookies_from_browser(browser_key):
+    """Set yt-dlp --cookies-from-browser for default browser hook (Chrome/Firefox/Edge/Brave etc. not Chrome-limited)"""
+    _cookies_config["from_browser"] = browser_key
+    _cookies_config["cookies_file"] = None
+    return json.dumps(_cookies_config)
+
+
+def set_cookies_file(path):
+    """Fallback: set --cookies <file>"""
+    _cookies_config["cookies_file"] = path
+    _cookies_config["from_browser"] = None
+    return json.dumps(_cookies_config)
+
+
 def get_runtime():
-    return json.dumps(_runtime)
+    return json.dumps({**_runtime, **_cookies_config})
 
 
 def _build_options(download=False, format_id=None, output_type="Video"):
@@ -49,20 +65,22 @@ def _build_options(download=False, format_id=None, output_type="Video"):
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
 
+    # Cookie hook for default browser login state
+    if _cookies_config.get("from_browser"):
+        # yt-dlp expects ('chrome',) or ('firefox',) etc.
+        # For security, we don't pass keyring; let yt-dlp handle.
+        opts["cookiesfrombrowser"] = (_cookies_config["from_browser"],)
+    elif _cookies_config.get("cookies_file"):
+        opts["cookiefile"] = _cookies_config["cookies_file"]
+
     # Format selection
     if format_id:
         opts["format"] = format_id
     else:
-        # Default best per spec: bestvideo*+bestaudio/best
-        # For audio-only, caller should pass format_id or output_type handling
         if output_type == "Audio":
             opts["format"] = "bestaudio/best"
         else:
             opts["format"] = "bestvideo*+bestaudio/best"
-
-    # Avoid playlist, prefer single video
-    # Merge handling: yt-dlp will use FFmpeg if needed per ffmpeg_location
-    # No re-encode: default is copy/merge
 
     if not download:
         opts["skip_download"] = True
@@ -75,8 +93,6 @@ def _normalize_error(e):
     msg = str(e)
     tname = type(e).__name__
     tb = traceback.format_exc()
-
-    # Heuristic mapping; Kotlin side will further normalize via YtDlpError
     lower = msg.lower()
     if "private video" in lower:
         err = "PrivateVideo"
@@ -96,7 +112,6 @@ def _normalize_error(e):
         err = "FfmpegUnavailable"
     else:
         err = "Unknown"
-
     return {"error": err, "message": msg, "type": tname, "traceback": tb}
 
 
@@ -128,11 +143,8 @@ def extract_info(url):
     """
     try:
         from yt_dlp import YoutubeDL
-
-        # Basic URL validation per spec section 20
         if not url or not url.strip().startswith(("http://", "https://")):
             return json.dumps({"error": "InvalidUrl", "message": "Invalid URL: " + str(url)})
-
         opts = _build_options(download=False)
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -158,14 +170,12 @@ def clear_cancel(download_id):
 def download(url, output_template, download_id, callback, format_id=None, output_type="Video"):
     """
     Download with progress_hook.
-    output_template: e.g. /tmp/<id>/.../%(title)s.%(ext)s - already resolved to staging dir
-    callback: Kotlin object with method on_progress(json_str) and should_cancel() -> bool
+    output_template: e.g. /tmp/<id>/.../%(title)s.%(ext)s
+    callback: Kotlin object with method on_progress(json_str) and should_cancel()
     Returns JSON string with final uri or error.
-    Never raises to Kotlin - always returns JSON.
     """
     try:
         from yt_dlp import YoutubeDL
-
         if not url or not url.strip().startswith(("http://", "https://")):
             err = {"error": "InvalidUrl", "message": "Invalid URL"}
             callback.on_progress(json.dumps({"_type": "error", "id": download_id, "error": err}))
@@ -173,8 +183,6 @@ def download(url, output_template, download_id, callback, format_id=None, output
 
         def progress_hook(data):
             try:
-                # Throttle heavy UI updates on Kotlin side; here just forward
-                # Check cancel
                 should_cancel = False
                 try:
                     should_cancel = bool(callback.should_cancel())
@@ -182,9 +190,6 @@ def download(url, output_template, download_id, callback, format_id=None, output
                     pass
                 if should_cancel or download_id in _cancel_flags:
                     raise InterruptedError("Cancelled")
-
-                # Normalize yt-dlp progress dict to our DownloadEvent.Progress JSON
-                # yt-dlp provides: status, downloaded_bytes, total_bytes, speed, eta, etc.
                 payload = {
                     "_type": "progress",
                     "id": download_id,
@@ -196,7 +201,6 @@ def download(url, output_template, download_id, callback, format_id=None, output
                     "percent": None,
                     "filename": data.get("filename"),
                 }
-                # Calculate percent if possible
                 try:
                     if payload["downloaded_bytes"] and payload["total_bytes"]:
                         payload["percent"] = (payload["downloaded_bytes"] / payload["total_bytes"]) * 100.0
@@ -206,7 +210,6 @@ def download(url, output_template, download_id, callback, format_id=None, output
             except InterruptedError:
                 raise
             except Exception as inner:
-                # Lightweight - don't crash hook
                 try:
                     callback.on_progress(json.dumps({"_type": "hook_error", "error": str(inner)}))
                 except Exception:
@@ -215,19 +218,14 @@ def download(url, output_template, download_id, callback, format_id=None, output
         opts = _build_options(download=True, format_id=format_id, output_type=output_type)
         opts["outtmpl"] = output_template
         opts["progress_hooks"] = [progress_hook]
-        # postprocessor hook for merging phase
         def post_hook(data):
             try:
                 callback.on_progress(json.dumps({"_type": "postprocessing", "id": download_id, "status": data.get("status"), "postprocessor": data.get("postprocessor")}))
             except Exception:
                 pass
         opts["postprocessor_hooks"] = [post_hook]
-
-        # Ensure cancel flag cleared before start
         _cancel_flags.discard(download_id)
-
         with YoutubeDL(opts) as ydl:
-            # Check QuickJS exists before starting (sanity)
             qjs = _runtime.get("qjs")
             if qjs:
                 import os
@@ -235,14 +233,10 @@ def download(url, output_template, download_id, callback, format_id=None, output
                     err = {"error": "QuickJsUnavailable", "message": "QuickJS not found at " + qjs}
                     callback.on_progress(json.dumps({"_type": "error", "id": download_id, "error": err}))
                     return json.dumps(err)
-
             callback.on_progress(json.dumps({"_type": "started", "id": download_id}))
             ydl.download([url])
-            # After download, yt-dlp may have produced file; we return the template's resulting path
-            # Kotlin side will verify file existence and later move via MediaStore
             callback.on_progress(json.dumps({"_type": "completed", "id": download_id, "template": output_template}))
             return json.dumps({"status": "Completed", "id": download_id, "template": output_template})
-
     except InterruptedError:
         try:
             callback.on_progress(json.dumps({"_type": "cancelled", "id": download_id}))

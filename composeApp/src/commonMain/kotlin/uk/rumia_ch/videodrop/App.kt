@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
@@ -21,7 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import uk.rumia_ch.videodrop.core.AnalyzeState
 import uk.rumia_ch.videodrop.core.DefaultDownloadRepository
@@ -38,14 +36,11 @@ import uk.rumia_ch.videodrop.ui.VideoDropViewModel
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
 import uk.rumia_ch.videodrop.ui.theme.ClipboxTheme
 
-private fun isYouTubeUrl(url: String): Boolean {
-    val lower = url.lowercase()
-    return lower.contains("youtube.com") || lower.contains("youtu.be") || lower.contains("m.youtube.com")
-}
-
 @Composable
 fun App(
-    engine: YtDlpEngine = NoOpYtDlpEngine()
+    engine: YtDlpEngine = NoOpYtDlpEngine(),
+    externalClipUrl: String? = null,
+    onClipUrlConsumed: (() -> Unit)? = null
 ) {
     ClipboxTheme {
         val repository = remember(engine) { DefaultDownloadRepository(engine) }
@@ -54,7 +49,6 @@ fun App(
         var pendingUrl by remember { mutableStateOf<String?>(null) }
         var showAreYouOk by remember { mutableStateOf(false) }
         var showReally by remember { mutableStateOf(false) }
-        var showNotYouTube by remember { mutableStateOf(false) }
         var playerUri by remember { mutableStateOf("") }
         var playerTitle by remember { mutableStateOf("") }
         var playerIsVideo by remember { mutableStateOf(true) }
@@ -63,6 +57,15 @@ fun App(
         LaunchedEffect(analyzeState) {
             if (analyzeState is AnalyzeState.Success) {
                 screen = Screen.Detail
+            }
+        }
+
+        // Hook from default browser via Share / CustomTabs
+        LaunchedEffect(externalClipUrl) {
+            if (!externalClipUrl.isNullOrBlank()) {
+                pendingUrl = externalClipUrl
+                showAreYouOk = true
+                onClipUrlConsumed?.invoke()
             }
         }
 
@@ -76,13 +79,8 @@ fun App(
                 when (screen) {
                     Screen.Browser -> BrowserScreen(
                         onClipRequest = { url ->
-                            if (!isYouTubeUrl(url)) {
-                                pendingUrl = url
-                                showNotYouTube = true
-                            } else {
-                                pendingUrl = url
-                                showAreYouOk = true
-                            }
+                            pendingUrl = url
+                            showAreYouOk = true
                         }
                     )
                     Screen.MyCollection -> MyCollectionScreen(
@@ -118,8 +116,6 @@ fun App(
                 }
             }
 
-            // Bottom nav: Clipbox流 ブラウザ / マイコレクション / 設定
-            // Player と Detail はフルスクリーンなので BottomNav は表示しない
             if (screen != Screen.Player && screen != Screen.Detail) {
                 NavigationBar(containerColor = ClipboxColors.Surface) {
                     NavigationBarItem(
@@ -144,22 +140,11 @@ fun App(
             }
         }
 
-        if (showNotYouTube && pendingUrl != null) {
-            AlertDialog(
-                onDismissRequest = { showNotYouTube = false; pendingUrl = null },
-                title = { Text("YouTubeのみ対応") },
-                text = { Text("このアプリはブラウザからYouTubeの動画を直接ダウンロードする機能に特化しています。\n\nURL: ${pendingUrl}\n\nYouTubeの動画ページで「＋ クリップ」を押してください。PDF等の文書ビューアーは対象外です。") },
-                confirmButton = {
-                    TextButton(onClick = { showNotYouTube = false; pendingUrl = null }) { Text("OK") }
-                }
-            )
-        }
-
         if (showAreYouOk && pendingUrl != null) {
             AlertDialog(
                 onDismissRequest = { showAreYouOk = false },
                 title = { Text("Are you ok?") },
-                text = { Text("このYouTubeページをクリップしますか？\n${pendingUrl}\n\nヒント: 動画は一度再生してから「＋」で検出率UP") },
+                text = { Text("このページをクリップしますか？\n${pendingUrl}\n\n対応: YouTube / ニコニコ / X / Instagram / TikTok など yt-dlp 1800+ サイト\n外部ブラウザから共有されたURLもここで解析できます。") },
                 confirmButton = {
                     TextButton(onClick = {
                         showAreYouOk = false
@@ -175,7 +160,7 @@ fun App(
             AlertDialog(
                 onDismissRequest = { showReally = false },
                 title = { Text("Really?") },
-                text = { Text("YouTubeを解析して、動画 or 音楽 の保存形式を選べます。\n保存後はマイコレクションで再生できます。") },
+                text = { Text("yt-dlpで解析して、動画 or 音楽 を選んで保存します。\nログインが必要な動画は、デフォルトブラウザでログイン済みなら共有経由でCookieを活用できます。") },
                 confirmButton = {
                     TextButton(onClick = {
                         showReally = false

@@ -41,6 +41,15 @@ class AndroidYtDlpEngine(
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(context))
         }
+        // Hook default browser's login state via cookies-from-browser (not Chrome-limited)
+        try {
+            val py = Python.getInstance()
+            val mod = py.getModule("ytdlp_bridge")
+            val cookieKey = DefaultBrowserResolver.ytDlpCookiesArg(context)
+            if (cookieKey != null) {
+                mod.callAttr("set_cookies_from_browser", cookieKey)
+            }
+        } catch (_: Exception) {}
     }
 
     fun resolveQuickJsPath(): String =

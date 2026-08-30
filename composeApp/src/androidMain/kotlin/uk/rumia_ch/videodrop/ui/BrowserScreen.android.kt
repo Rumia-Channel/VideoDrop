@@ -1,11 +1,14 @@
 package uk.rumia_ch.videodrop.ui
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,15 +36,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
+import uk.rumia_ch.videodrop.ytdlp.DefaultBrowserResolver
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 actual fun BrowserScreen(
     onClipRequest: (url: String) -> Unit
 ) {
+    val context = LocalContext.current
+    val defaultBrowser = remember { DefaultBrowserResolver.resolve(context) }
+    val ytDlpCookieKey = remember { DefaultBrowserResolver.ytDlpCookiesArg(context) }
+
     var urlInput by remember { mutableStateOf("https://m.youtube.com") }
     var currentUrl by remember { mutableStateOf("https://m.youtube.com") }
     var progress by remember { mutableStateOf(0) }
@@ -61,8 +70,8 @@ actual fun BrowserScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text("ブラウザ — YouTube専用", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
-                Text("YouTubeの動画ページを開き、再生してから「＋ クリップ」で動画/音楽を選択保存", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Text("ブラウザ — yt-dlp対応 (1800+サイト)", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                Text("YouTube / ニコニコ / X / Instagram / TikTok など。動画ページを開き再生してから「＋ クリップ」", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -70,7 +79,7 @@ actual fun BrowserScreen(
                         onValueChange = { urlInput = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("https://m.youtube.com/...") },
+                        placeholder = { Text("https://...") },
                         shape = RoundedCornerShape(8.dp)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -104,9 +113,55 @@ actual fun BrowserScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
                     ) { Text("更新") }
                 }
-                Row(modifier = Modifier.padding(top = 4.dp)) {
-                    Text("🔖 ブックマーク", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(end = 12.dp))
-                    Text("🕒 履歴", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Spacer(Modifier.height(8.dp))
+                // Default browser hook — Chromeに限らずデフォルトブラウザ
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text("🔗 デフォルトブラウザ連携: ${defaultBrowser.label} (${defaultBrowser.packageName})", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextPrimary)
+                        Text(
+                            if (ytDlpCookieKey != null) "ログイン状態を yt-dlp --cookies-from-browser ${ytDlpCookieKey} でフック可能" else "このブラウザは yt-dlpの自動Cookie取得に未対応 — 共有経由でURLをクリップしてください",
+                            style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            Button(
+                                onClick = {
+                                    val u = webViewRef?.url ?: currentUrl
+                                    // Launch in default browser via CustomTabs (shares login state with default browser)
+                                    val customTabsIntent = CustomTabsIntent.Builder().build()
+                                    // Try to force default browser by setting package
+                                    customTabsIntent.intent.setPackage(defaultBrowser.packageName)
+                                    try {
+                                        customTabsIntent.launchUrl(context, Uri.parse(u))
+                                    } catch (_: Exception) {
+                                        // Fallback to generic VIEW intent (system picks default browser)
+                                        val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(u))
+                                        context.startActivity(fallback)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary),
+                                modifier = Modifier.weight(1f)
+                            ) { Text("外部ブラウザで開く") }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    // Share current URL to trigger our ShareReceiver (hooks default browser's Share)
+                                    val share = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, webViewRef?.url ?: currentUrl)
+                                    }
+                                    context.startActivity(Intent.createChooser(share, "VideoDropでクリップ"))
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary),
+                                modifier = Modifier.weight(1f)
+                            ) { Text("共有→クリップ") }
+                        }
+                        Text("💡 ヒント: 普段使っているブラウザでログイン済みの状態で「共有 → VideoDrop」を選ぶと、ログイン状態をフックできます (CustomTabsはデフォルトブラウザとCookieを共有)", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1E40AF), modifier = Modifier.padding(top = 6.dp))
+                    }
                 }
             }
         }
@@ -180,7 +235,7 @@ actual fun BrowserScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7ED))
         ) {
             Text(
-                "💡 YouTube専用: ブラウザでYouTube動画を開き一度再生→「＋ クリップ」→動画/音楽を選択。PDF等の文書は対象外。",
+                "💡 内蔵ブラウザでも外部ブラウザでもOK。デフォルトブラウザ(現在: ${defaultBrowser.label})でログイン→共有→VideoDropでCookieを活用。yt-dlp対応サイト全般に対応。",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF9A3412),
                 modifier = Modifier.padding(8.dp)

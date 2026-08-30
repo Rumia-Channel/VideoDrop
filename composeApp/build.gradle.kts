@@ -51,6 +51,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.compose.uiTooling)
             implementation(libs.androidx.core.ktx)
+            implementation(libs.androidx.browser)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)

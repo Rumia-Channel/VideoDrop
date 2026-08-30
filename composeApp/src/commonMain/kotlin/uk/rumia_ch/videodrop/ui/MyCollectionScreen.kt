@@ -39,9 +39,8 @@ import uk.rumia_ch.videodrop.core.DownloadEvent
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
 
 /**
- * YouTube特化版 マイコレクション
- * - PDF/文書ビューアーは対象外 (ユーザー要望)
- * - ダウンロードしたYouTubeの動画/音楽のみ 表示・再生
+ * yt-dlp対応サイト全般 マイコレクション
+ * - PDF/文書は対象外だが、YouTube以外 (ニコニコ/X/TikTok等) も含む
  */
 @Composable
 fun MyCollectionScreen(
@@ -50,14 +49,13 @@ fun MyCollectionScreen(
 ) {
     val events by viewModel.downloadEvents.collectAsState()
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf("すべて") } // すべて / 動画 / 音楽
+    var filter by remember { mutableStateOf("すべて") }
     var isGrid by remember { mutableStateOf(false) }
 
     val files = remember(events) {
         events.values.filterIsInstance<DownloadEvent.Completed>().map {
             val name = it.uri.substringAfterLast("/")
             val isVideo = name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mkv")
-            // Title fallback is name without ext
             val title = name.substringBeforeLast(".")
             FileItem(name = name, uri = it.uri, id = it.id, title = title, isVideo = isVideo)
         }
@@ -81,9 +79,9 @@ fun MyCollectionScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("マイコレクション", style = MaterialTheme.typography.titleLarge, color = ClipboxColors.TextPrimary, modifier = Modifier.weight(1f))
-            Text("YouTubeのみ", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(end = 8.dp))
+            Text("yt-dlp対応", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(end = 8.dp))
             Button(
-                onClick = { /* 将来: フォルダ作成 */ },
+                onClick = { },
                 colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary),
                 shape = RoundedCornerShape(8.dp)
             ) { Text("＋ フォルダ") }
@@ -93,7 +91,7 @@ fun MyCollectionScreen(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("🔍 YouTubeの保存動画を検索", color = ClipboxColors.TextSecondary) },
+            placeholder = { Text("🔍 保存した動画/音楽を検索", color = ClipboxColors.TextSecondary) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         )
@@ -110,7 +108,6 @@ fun MyCollectionScreen(
         }
         Spacer(Modifier.height(8.dp))
 
-        // Clipbox風 フォルダは動画/音楽のみ
         Text("フォルダ", style = MaterialTheme.typography.titleSmall, color = ClipboxColors.TextPrimary)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(vertical = 8.dp)) {
             FolderCard(name = "動画", count = files.count { it.isVideo }, icon = "🎬")
@@ -118,7 +115,7 @@ fun MyCollectionScreen(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("保存したYouTube", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Text("保存した動画・音楽", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             Button(
                 onClick = { isGrid = !isGrid },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
@@ -133,10 +130,10 @@ fun MyCollectionScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("🎬", style = MaterialTheme.typography.headlineLarge)
-                    Text("保存したYouTube動画はありません", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
-                    Text("ブラウザでYouTubeを開き「＋ クリップ」→「動画」or「音楽」を選ぶとここに表示され、タップで再生できます", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                    Text("保存した動画はありません", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                    Text("ブラウザで YouTube / ニコニコ / X などの動画ページを開き「＋ クリップ」→動画/音楽を選択するとここに表示されタップで再生できます", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                     Spacer(Modifier.height(8.dp))
-                    Text("対応: YouTube 動画→動画/音楽 選択保存。PDF等の文書は対象外", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                    Text("対応: yt-dlpがサポートする約1800サイト (YouTube含む)。PDF等の文書は対象外", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                 }
             }
         } else {
@@ -158,7 +155,7 @@ fun MyCollectionScreen(
             downloading.forEach { ev ->
                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF))) {
                     Column(modifier = Modifier.padding(8.dp)) {
-                        Text(ev.id.take(16) + "...  YouTube", style = MaterialTheme.typography.bodySmall)
+                        Text(ev.id.take(16) + "...", style = MaterialTheme.typography.bodySmall)
                         Text("${ev.percent?.toInt() ?: 0}%  ${ev.speedBytesPerSecond?.let { "${it/1024}KB/s"} ?: ""}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
