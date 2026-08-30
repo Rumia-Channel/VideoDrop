@@ -140,6 +140,9 @@ jobs:
 
           if [ ! -d /tmp/ffmpeg/.git ]; then
             git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg
+          fi
+          cd /tmp/ffmpeg
+
           ./configure \
             --target-os=android --arch=aarch64 --cpu=armv8-a \
             --cc="$CC" --ld="$CC" \
@@ -151,6 +154,11 @@ jobs:
             --enable-static --disable-shared \
             --enable-small --disable-doc --disable-debug \
             --prefix=/tmp/ffmpeg/install
+          make -j$(nproc)
+          make install
+
+          mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
+          cp -v /tmp/ffmpeg/install/bin/ffmpeg "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so"
           cp -v /tmp/ffmpeg/install/bin/ffprobe "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so" "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
