@@ -10,8 +10,10 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -254,7 +256,7 @@ class AndroidYtDlpEngine(
     }
 
     private suspend fun kotlinx.coroutines.CoroutineScope.launchWithMutex(block: suspend () -> Unit): kotlinx.coroutines.Job {
-        return kotlinx.coroutines.launch(Dispatchers.IO) {
+        return launch {
             downloadMutex.withLock {
                 block()
             }
