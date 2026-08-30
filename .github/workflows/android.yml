@@ -77,29 +77,29 @@ jobs:
       - name: Build QuickJS (arm64-v8a PIE)
         run: |
           set -eux
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -la "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep -E "aarch64|clang" | head -n 20
+          which aarch64-linux-android24-clang || echo "aarch64 clang not in PATH, will use full prefix"
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
           if [ "${QUICKJS_REF}" != "master" ]; then git fetch --depth 1 origin "${QUICKJS_REF}" && git checkout FETCH_HEAD; fi
-          # Clean host and target
-          make clean || true
-          rm -rf .obj || true
-          # NDK cross compile for arm64-v8a, API 24 (minSdk 24) — use CONFIG_CLANG + CROSS_PREFIX per Makefile
-          # Do NOT use LDFLAGS="-static" on Android (Bionic doesn't support fully static PIE)
-          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android24- qjs
-          ls -lh qjs
-          file qjs
-          # Must be PIE, aarch64
+          make clean || true; rm -rf .obj || true
+          # Use full NDK prefix to avoid PATH issues
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if [ ! -d "$NDK_BIN" ]; then NDK_BIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"; fi
+          ls -lh "$NDK_BIN"/aarch64* | head -n 20
+          "$NDK_BIN/aarch64-linux-android24-clang" --version
+          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX="$NDK_BIN/aarch64-linux-android24-" qjs V=1
+          ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           file qjs | grep -qi "pie executable" || echo "::warning::Not PIE? file says: $(file qjs)"
-          # QuickJS version sanity — qjs --help may not exist, try -h
           ./qjs --help 2>&1 | head -n 20 || ./qjs -h 2>&1 | head -n 20 || echo "qjs built"
-          # Install to jniLibs
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
           file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
-
       - name: (Optional) Build FFmpeg arm64-v8a
         if: false # 有効化する場合は true に。MVPは QuickJSのみ必須、FFmpegは別ジョブ推奨
         run: |

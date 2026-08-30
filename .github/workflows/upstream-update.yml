@@ -176,11 +176,12 @@ jobs:
       - name: QuickJS verification (Android arm64)
         run: |
           set -eux
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls -la "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep -E "aarch64|clang" | head -n 20
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
           QJS_VER=$(python3 -c "import json; print(json.load(open('config/upstream-versions.json'))['quickjs']['version'])")
           echo "QuickJS version from config: $QJS_VER"
-          # Try official archive first (per spec 6), fallback to git
           if curl --fail --silent --show-error "https://bellard.org/quickjs/quickjs-${QJS_VER}.tar.xz" -o /tmp/quickjs.tar.xz; then
             echo "Got official archive quickjs-${QJS_VER}.tar.xz"
             rm -rf /tmp/quickjs-official
@@ -190,18 +191,20 @@ jobs:
             echo "Official archive not found, using git clone"
             cd /tmp/quickjs
           fi
-          make clean || true
-          rm -rf .obj || true
-          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android24- qjs
+          make clean || true; rm -rf .obj || true
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if [ ! -d "$NDK_BIN" ]; then NDK_BIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"; fi
+          "$NDK_BIN/aarch64-linux-android24-clang" --version
+          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX="$NDK_BIN/aarch64-linux-android24-" qjs V=1
           ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
+
       - name: FFmpeg verification (Android arm64)
         run: |
-          set -eux
           # FFmpeg build is heavy; for now verify tag exists and version matches
           FF_VER=$(python3 -c "import json; print(json.load(open('config/upstream-versions.json'))['ffmpeg']['version'])")
           echo "FFmpeg version from config: $FF_VER"
