@@ -52,6 +52,9 @@ kotlin {
             implementation(libs.compose.uiTooling)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.browser)
+            implementation(libs.androidx.media3.exoplayer)
+            implementation(libs.androidx.media3.session)
+            implementation(libs.androidx.media3.ui)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)

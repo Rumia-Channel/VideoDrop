@@ -2,7 +2,8 @@
 set -euxo pipefail
 
 # Local QuickJS build for ytdlpAndroid (mirrors CI) — spec 9章
-# Requires Android NDK r27 with aarch64-linux-android24-clang in PATH
+# Research: bellard/quickjs cross via CROSS_PREFIX=host- + CC="clang --target=aarch64-linux-android24"
+# Requires Android NDK r27 with clang --target support
 # Usage: ./scripts/build-quickjs.sh
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,11 +12,24 @@ API=24
 QUICKJS_REF="${QUICKJS_REF:-master}"
 TMPDIR="${TMPDIR:-/tmp}/quickjs-build-$$"
 
-if ! command -v aarch64-linux-android24-clang >/dev/null 2>&1; then
-  echo "NDK clang not found. Install NDK $NDK_VER and add to PATH:"
-  echo "  sdkmanager --install \"ndk;${NDK_VER}\""
-  echo "  export PATH=\$ANDROID_SDK_ROOT/ndk/${NDK_VER}/toolchains/llvm/prebuilt/linux-x86_64/bin:\$PATH"
-  exit 1
+# Find NDK
+if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+  if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/ndk/$NDK_VER" ]; then
+    ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VER"
+  elif [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -d "$ANDROID_SDK_ROOT/ndk/$NDK_VER" ]; then
+    ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$NDK_VER"
+  fi
+fi
+TOOLCHAIN="${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64"
+if [ ! -x "$TOOLCHAIN/bin/clang" ]; then
+  if ! command -v aarch64-linux-android24-clang >/dev/null 2>&1; then
+    echo "NDK clang not found. Install NDK $NDK_VER and set ANDROID_NDK_HOME or PATH:"
+    echo "  sdkmanager --install \"ndk;${NDK_VER}\""
+    echo "  export ANDROID_NDK_HOME=\$ANDROID_HOME/ndk/${NDK_VER}"
+    exit 1
+  fi
+  TOOLCHAIN="$(dirname "$(command -v aarch64-linux-android24-clang)")/.."
+  TOOLCHAIN="$(cd "$TOOLCHAIN/.." && pwd)/toolchains/llvm/prebuilt/linux-x86_64"
 fi
 
 if [ -d /tmp/quickjs ]; then
@@ -32,12 +46,19 @@ fi
 
 make clean || true
 rm -rf .obj || true
-# Use CONFIG_CLANG + CROSS_PREFIX per Makefile (NDK Clang)
-make -j"$(nproc)" CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android${API}- qjs
+
+export CC="$TOOLCHAIN/bin/clang --target=aarch64-linux-android${API}"
+export AR="$TOOLCHAIN/bin/llvm-ar"
+export STRIP="$TOOLCHAIN/bin/llvm-strip"
+export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+
+echo "TOOLCHAIN=$TOOLCHAIN"
+echo "CC=$CC"
+make -j"$(nproc)" CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" qjs
 
 file qjs
+"$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true
 file qjs | grep -qi "aarch64" || (echo "Not aarch64" && exit 1)
-./qjs --help 2>&1 | head -n 20 || ./qjs -h 2>&1 | head -n 20 || echo "qjs built"
 
 DEST="$ROOT/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
 mkdir -p "$DEST"

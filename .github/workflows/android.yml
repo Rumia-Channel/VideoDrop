@@ -74,27 +74,28 @@ jobs:
           restore-keys: |
             quickjs-
 
-      - name: Build QuickJS (arm64-v8a PIE)
+      - name: Build QuickJS (arm64-v8a PIE) — bellard/quickjs cross (host-qjsc)
         run: |
           set -eux
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep -E "aarch64|clang" | head -n 20
-          which aarch64-linux-android24-clang || echo "aarch64 clang not in PATH, will use full prefix"
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          if [ ! -d "$TOOLCHAIN" ]; then TOOLCHAIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64"; fi
+          ls -la "$TOOLCHAIN/bin/" | grep -E "clang|llvm-ar" | head -n 20
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
           if [ "${QUICKJS_REF}" != "master" ]; then git fetch --depth 1 origin "${QUICKJS_REF}" && git checkout FETCH_HEAD; fi
           make clean || true; rm -rf .obj || true
-          # Use full NDK prefix to avoid PATH issues
-          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          if [ ! -d "$NDK_BIN" ]; then NDK_BIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"; fi
-          ls -lh "$NDK_BIN"/aarch64* | head -n 20
-          "$NDK_BIN/aarch64-linux-android24-clang" --version
-          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX="$NDK_BIN/aarch64-linux-android24-" qjs V=1
+          # Per Android NDK other_build_systems + QuickJS Makefile: host- prefix builds host qjsc, CC is NDK clang --target
+          export CC="$TOOLCHAIN/bin/clang --target=aarch64-linux-android24"
+          export AR="$TOOLCHAIN/bin/llvm-ar"
+          export STRIP="$TOOLCHAIN/bin/llvm-strip"
+          export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+          echo "CC=$CC"; echo "AR=$AR"
+          make -j$(nproc) CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" qjs
           ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
-          file qjs | grep -qi "pie executable" || echo "::warning::Not PIE? file says: $(file qjs)"
-          ./qjs --help 2>&1 | head -n 20 || ./qjs -h 2>&1 | head -n 20 || echo "qjs built"
+          "$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true
+          # qjs is Android executable, cannot run on host — skip ./qjs --help
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"

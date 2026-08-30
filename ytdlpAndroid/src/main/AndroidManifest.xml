@@ -8,6 +8,15 @@
             android:name=".ytdlp.YtDlpDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- MediaSessionService for background playback + playlist (video/audio) -->
+        <service
+            android:name=".ytdlp.PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
