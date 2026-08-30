@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v2026.08.30) — 日付ベース"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: "27.0.12077973"
+      QUICKJS_REF: "master"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag (date-based if manual)
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            # fallback: date-based tag vYYYY.MM.DD
+            echo "tag=v$(date +%Y.%m.%d)" >> $GITHUB_OUTPUT
+          fi
+          echo "Resolved tag: $(cat $GITHUB_OUTPUT)"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and platform
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
+          echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Build QuickJS arm64-v8a
+        run: |
+          set -eux
+          test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
+          cd /tmp/quickjs
+          make clean || true
+          export CC="aarch64-linux-android24-clang" AR="llvm-ar" STRIP="llvm-strip"
+          make -j$(nproc) qjs LDFLAGS="-static"
+          file qjs | grep -q "aarch64"
+          mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
+          cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+          chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+
+      - name: Assemble Release APK (date version)
+        run: |
+          chmod +x gradlew
+          ./gradlew :androidApp:assembleRelease --stacktrace
+          ls -lh androidApp/build/outputs/apk/release/
+          # Also build debug for smoke
+          ./gradlew :androidApp:assembleDebug
+
+      - name: Rename APK with tag
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          # date version like v2026.08.30 -> 2026.08.30
+          cp androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk "VideoDrop-${TAG}.apk" || cp androidApp/build/outputs/apk/release/*.apk "VideoDrop-${TAG}.apk" || true
+          # Prefer signed if available, else unsigned
+          ls -lh VideoDrop-*.apk || ls -lh androidApp/build/outputs/apk/release/
+          # Ensure at least one apk
+          APK=$(ls VideoDrop-*.apk 2>/dev/null | head -n1)
+          if [ -z "$APK" ]; then APK=$(ls androidApp/build/outputs/apk/release/*.apk | head -n1); cp "$APK" "VideoDrop-${TAG}.apk"; fi
+          echo "apk=VideoDrop-${TAG}.apk" >> $GITHUB_OUTPUT
+        id: apk
+
+      - name: Create GitHub Release (if tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.apk.outputs.apk }}
+            androidApp/build/outputs/apk/release/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Upload Release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-${{ steps.tag.outputs.tag }}
+          path: |
+            VideoDrop-*.apk
+            androidApp/build/outputs/apk/release/*.apk

@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
+import uk.rumia_ch.videodrop.core.AppVersionHolder
 import uk.rumia_ch.videodrop.core.NoOpYtDlpEngine
 import uk.rumia_ch.videodrop.ytdlp.AndroidYtDlpEngine
 
@@ -25,6 +26,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // Provide version for core/getAppVersion() (date-based versionName)
+        try {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            AppVersionHolder.versionName = pi.versionName
+            AppVersionHolder.appContext = applicationContext
+        } catch (_: Exception) {}
 
         handleIntent(intent)
 

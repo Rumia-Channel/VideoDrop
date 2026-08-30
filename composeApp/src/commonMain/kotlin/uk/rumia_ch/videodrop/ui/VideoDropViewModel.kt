@@ -13,13 +13,18 @@ import uk.rumia_ch.videodrop.core.DownloadEvent
 import uk.rumia_ch.videodrop.core.DownloadRepository
 import uk.rumia_ch.videodrop.core.DownloadRequest
 import uk.rumia_ch.videodrop.core.FormatSelection
+import uk.rumia_ch.videodrop.core.GitHubUpdateChecker
 import uk.rumia_ch.videodrop.core.OutputType
 import uk.rumia_ch.videodrop.core.RuntimeStatus
+import uk.rumia_ch.videodrop.core.UpdateConfig
+import uk.rumia_ch.videodrop.core.UpdateState
 import uk.rumia_ch.videodrop.core.YtDlpError
+import uk.rumia_ch.videodrop.core.getAppVersion
 import kotlin.random.Random
 
 class VideoDropViewModel(
-    private val repository: DownloadRepository
+    private val repository: DownloadRepository,
+    private val updateChecker: GitHubUpdateChecker = GitHubUpdateChecker()
 ) : ViewModel() {
 
     private val _analyzeState = MutableStateFlow<AnalyzeState>(AnalyzeState.Idle)
@@ -30,6 +35,14 @@ class VideoDropViewModel(
 
     private val _runtimeStatus = MutableStateFlow<RuntimeStatus?>(null)
     val runtimeStatus: StateFlow<RuntimeStatus?> = _runtimeStatus.asStateFlow()
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    private val _repoOwner = MutableStateFlow(UpdateConfig.REPO_OWNER)
+    val repoOwner: StateFlow<String> = _repoOwner.asStateFlow()
+    private val _repoName = MutableStateFlow(UpdateConfig.REPO_NAME)
+    val repoName: StateFlow<String> = _repoName.asStateFlow()
 
     private var currentDownloadJob: Job? = null
     private var currentDownloadId: String? = null
@@ -90,8 +103,34 @@ class VideoDropViewModel(
         }
     }
 
+    fun setRepo(owner: String, name: String) {
+        _repoOwner.value = owner.trim()
+        _repoName.value = name.trim()
+    }
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Checking
+            val current = try { getAppVersion() } catch (_: Exception) { "1.0.0" }
+            val owner = _repoOwner.value.ifBlank { UpdateConfig.REPO_OWNER }
+            val name = _repoName.value.ifBlank { UpdateConfig.REPO_NAME }
+            val result = updateChecker.check(current, owner, name)
+            _updateState.value = result.fold(
+                onSuccess = { info ->
+                    if (info.isUpdateAvailable) UpdateState.Available(info) else UpdateState.UpToDate
+                },
+                onFailure = { e ->
+                    UpdateState.Error(e.message ?: "Unknown error: ${e::class.simpleName}")
+                }
+            )
+        }
+    }
+
+    fun resetUpdateState() {
+        _updateState.value = UpdateState.Idle
+    }
+
     private fun generateDownloadId(url: String): String {
-        // Random-based ID to avoid System.currentTimeMillis() which is JVM-only in commonMain
         return "${Random.nextLong()}-${url.hashCode().toString(16)}"
     }
 }
