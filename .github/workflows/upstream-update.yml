@@ -226,10 +226,13 @@ jobs:
       - name: Android verification
         run: |
           set -eux
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
+          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
           chmod +x gradlew
           ./gradlew :ytdlpAndroid:assembleDebug --stacktrace || ./gradlew :androidApp:assembleDebug --stacktrace
           ./gradlew :core:jvmTest --continue || true
-
       - name: Integration smoke (yt-dlp + ejs + QuickJS)
         run: |
           set -eux
