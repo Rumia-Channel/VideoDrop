@@ -121,11 +121,46 @@ jobs:
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
           file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
 
-      - name: (Optional) Build FFmpeg arm64-v8a
-        if: false
+      - name: Cache FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ffmpeg
+          key: ffmpeg-${{ env.NDK_VERSION }}-arm64-v8a-static
+          restore-keys: |
+            ffmpeg-
+
+      - name: Build FFmpeg arm64-v8a (full GPL static PIE)
         run: |
-          echo "FFmpeg build is heavy (30m+) — enable when needed per spec 10章"
-          echo "See ytdlpAndroid/src/main/jniLibs/arm64-v8a/README.md"
+          set -eux
+          sudo apt-get update -q && sudo apt-get install -y -q yasm nasm pkg-config
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          if [ ! -d "$TOOLCHAIN" ]; then TOOLCHAIN="$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64"; fi
+          CC="$TOOLCHAIN/bin/aarch64-linux-android24-clang"
+          if [ ! -x "$CC" ]; then CC=$(find "$TOOLCHAIN/bin" -name "aarch64-linux-android24-clang" -type f | head -n1); fi
+
+          if [ ! -d /tmp/ffmpeg/.git ]; then
+            git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg
+          fi
+          cd /tmp/ffmpeg
+
+          ./configure \
+            --target-os=android --arch=aarch64 --cpu=armv8-a \
+            --cross-prefix=aarch64-linux-android- \
+            --cc="$CC" --ld="$CC" \
+            --enable-gpl --enable-version3 \
+            --enable-static --disable-shared \
+            --enable-small --disable-doc --disable-debug \
+            --prefix=/tmp/ffmpeg/install
+          make -j$(nproc)
+          make install
+
+          mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
+          cp -v /tmp/ffmpeg/install/bin/ffmpeg "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so"
+          cp -v /tmp/ffmpeg/install/bin/ffprobe "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+          chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so" "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+          ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
+          file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffmpegexec.so" "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libffprobeexec.so"
+
 
       - name: Assemble Debug (verifies jniLibs extraction)
         run: |
@@ -141,7 +176,7 @@ jobs:
           fi
           chmod +x gradlew
           ./gradlew :androidApp:assembleDebug --stacktrace
-          unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -E "libqjsexec|lib/arm64" || echo "::warning::libqjsexec not in APK (check packaging.jniLibs.useLegacyPackaging)"
+          unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -E "libqjsexec|libffmpegexec|libffprobeexec|lib/arm64" || echo "::warning::native libs not in APK (check packaging.jniLibs.useLegacyPackaging)"
 
       - name: Run JVM tests (core/composeApp)
         run: ./gradlew :core:jvmTest :core:jvmJar :composeApp:jvmJar --continue
@@ -157,5 +192,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jniLibs-arm64
-          path: ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so
+          path: ytdlpAndroid/src/main/jniLibs/arm64-v8a/
           if-no-files-found: error
