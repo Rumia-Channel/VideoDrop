@@ -36,7 +36,6 @@ jobs:
           elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           else
-            # fallback: date-based tag vYYYY.MM.DD
             echo "tag=v$(date +%Y.%m.%d)" >> $GITHUB_OUTPUT
           fi
           echo "Resolved tag: $(cat $GITHUB_OUTPUT)"
@@ -52,36 +51,20 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 36
+          build-tools: 36.0.0
+          ndk-version: 27.0.12077973
+          cmake-version: 3.22.1
 
-      - name: Install NDK and platform
+      - name: Verify SDK and NDK
         run: |
           set -eux
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
-          echo "Using sdkmanager: $SDKMANAGER"
-          ls -la "$(dirname "$SDKMANAGER")/" | head -n 20
-          mkdir -p "$ANDROID_HOME/licenses" || true
           ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME" --verbose || \
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME"
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          "$SDKMANAGER" --list_installed --sdk_root="$ANDROID_HOME" | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
-          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ "$ANDROID_SDK_ROOT" != "$ANDROID_HOME" ]; then
-            mkdir -p "$ANDROID_SDK_ROOT/licenses" || true
-            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_SDK_ROOT" || true
-          fi
-          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-          if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
-            echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
-            echo "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          else
-            echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-            echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          fi
-          ls -lh "${ANDROID_HOME}/ndk/${NDK_VERSION}/" | head -n 20 || ls -lh "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/" | head -n 20 || true
-          aarch64-linux-android24-clang --version || "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+          sdkmanager --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          ls -lh "$ANDROID_HOME/ndk/27.0.12077973/" 2>&1 | head -n 20 || ls -lh "$ANDROID_SDK_ROOT/ndk/27.0.12077973/" 2>&1 | head -n 20 || true
+          aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+
       - name: Build QuickJS arm64-v8a
         run: |
           set -eux
@@ -108,17 +91,13 @@ jobs:
           chmod +x gradlew
           ./gradlew :androidApp:assembleRelease --stacktrace
           ls -lh androidApp/build/outputs/apk/release/
-          # Also build debug for smoke
           ./gradlew :androidApp:assembleDebug
 
       - name: Rename APK with tag
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          # date version like v2026.08.30 -> 2026.08.30
           cp androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk "VideoDrop-${TAG}.apk" || cp androidApp/build/outputs/apk/release/*.apk "VideoDrop-${TAG}.apk" || true
-          # Prefer signed if available, else unsigned
           ls -lh VideoDrop-*.apk || ls -lh androidApp/build/outputs/apk/release/
-          # Ensure at least one apk
           APK=$(ls VideoDrop-*.apk 2>/dev/null | head -n1)
           if [ -z "$APK" ]; then APK=$(ls androidApp/build/outputs/apk/release/*.apk | head -n1); cp "$APK" "VideoDrop-${TAG}.apk"; fi
           echo "apk=VideoDrop-${TAG}.apk" >> $GITHUB_OUTPUT

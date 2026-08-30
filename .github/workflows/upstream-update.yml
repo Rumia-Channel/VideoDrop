@@ -43,7 +43,6 @@ jobs:
           cat /tmp/plan.json
           CHANGED=$(jq -r .changed /tmp/plan.json)
           echo "changed=$CHANGED" >> $GITHUB_OUTPUT
-          # Store plan as single-line JSON for output
           PLAN=$(jq -c . /tmp/plan.json)
           echo "plan=$PLAN" >> $GITHUB_OUTPUT
           if [ "$CHANGED" = "true" ]; then
@@ -89,39 +88,24 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 36
+          build-tools: 36.0.0
+          ndk-version: 27.0.12077973
+          cmake-version: 3.22.1
 
-      - name: Install NDK and platform
+      - name: Verify SDK and NDK
         run: |
           set -eux
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
-          echo "Using sdkmanager: $SDKMANAGER"
-          ls -la "$(dirname "$SDKMANAGER")/" | head -n 20
-          mkdir -p "$ANDROID_HOME/licenses" || true
           ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME" --verbose || \
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME"
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          "$SDKMANAGER" --list_installed --sdk_root="$ANDROID_HOME" | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
-          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ "$ANDROID_SDK_ROOT" != "$ANDROID_HOME" ]; then
-            mkdir -p "$ANDROID_SDK_ROOT/licenses" || true
-            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_SDK_ROOT" || true
-          fi
-          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-          if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
-            echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
-            echo "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          else
-            echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-            echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          fi
-          ls -lh "${ANDROID_HOME}/ndk/${NDK_VERSION}/" | head -n 20 || ls -lh "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/" | head -n 20 || true
-          aarch64-linux-android24-clang --version || "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+          ls -la "$ANDROID_SDK_ROOT/licenses/" 2>&1 | head -n 20 || true
+          sdkmanager --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          ls -lh "$ANDROID_HOME/ndk/27.0.12077973/" 2>&1 | head -n 20 || ls -lh "$ANDROID_SDK_ROOT/ndk/27.0.12077973/" 2>&1 | head -n 20 || true
+          aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
 
       - name: Download plan artifact
         uses: actions/download-artifact@v4
+        with:
           name: upstream-plan
           path: /tmp
 
@@ -151,7 +135,6 @@ jobs:
 
       - name: Verify no-change yields empty diff (spec 18)
         run: |
-          # Run update_pins twice - second should be idempotent
           python scripts/update_pins.py
           if [ -n "$(git status --porcelain)" ]; then
             echo "Changes after second run (should be empty if idempotent):"
@@ -161,14 +144,12 @@ jobs:
             echo "Idempotent check passed — no extra diff"
           fi
 
-      # --- Verification pipeline per spec 13 ---
       - name: Python verification (yt-dlp imports)
         run: |
           set -eux
           python3 -m pip install --quiet -r ytdlpAndroid/requirements-android.txt || pip install --quiet yt-dlp yt-dlp-ejs
           python3 -c "import yt_dlp; print(yt_dlp.version.__version__)"
           python3 -c "import yt_dlp_ejs; print('ejs ok')" || python3 -c "import importlib.metadata; print(importlib.metadata.version('yt-dlp-ejs'))"
-          # versions match expected pins
           python3 << 'PY'
           import json, pathlib, importlib.metadata
           cfg = json.loads(pathlib.Path("config/upstream-versions.json").read_text())
@@ -209,6 +190,7 @@ jobs:
           export STRIP="$TOOLCHAIN/bin/llvm-strip"
           export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           make -j$(nproc) CROSS_PREFIX=host- CC="$CC" AR="$AR" STRIP="$STRIP" RANLIB="$RANLIB" LIBS="-lm" qjs
+          ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           "$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
@@ -218,12 +200,10 @@ jobs:
 
       - name: FFmpeg verification (Android arm64)
         run: |
-          # FFmpeg build is heavy; for now verify tag exists and version matches
+          set -eux
           FF_VER=$(python3 -c "import json; print(json.load(open('config/upstream-versions.json'))['ffmpeg']['version'])")
           echo "FFmpeg version from config: $FF_VER"
           git ls-remote --tags https://github.com/FFmpeg/FFmpeg.git | grep -E "refs/tags/n${FF_VER}($|\\^)" | head -n 5
-          # Full NDK build would be here: ./configure --target-os=android etc.
-          # For MVP, we verify the tag exists and skip heavy build unless needed
           echo "FFmpeg tag verification PASS (full build on demand)"
 
       - name: Android verification
@@ -238,7 +218,6 @@ jobs:
           set -eux
           python3 << 'PY'
           import os, json, sys
-          # Set qjs path to freshly built one
           qjs = os.path.abspath("ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so")
           ffmpeg_dir = os.path.dirname(qjs) if os.path.exists(qjs) else ""
           sys.path.insert(0, "ytdlpAndroid/src/main/python")
@@ -246,18 +225,15 @@ jobs:
               import ytdlp_bridge
               ytdlp_bridge.initialize(qjs, ffmpeg_dir)
               print("bridge initialize PASS")
-              # Try import smoke
               import yt_dlp, yt_dlp_ejs
               print(f"yt-dlp {yt_dlp.version.__version__} + ejs PASS")
-              # Optional network smoke (YouTube) - retryable, distinguish network vs compat
-              # Only run if env var set, to avoid flaky CI
               if os.environ.get("RUN_NETWORK_SMOKE") == "1":
                   try:
                       info = ytdlp_bridge.extract_info("https://www.youtube.com/watch?v=BaW_jenozKc")
                       print("extract_info smoke PASS", info[:200])
                   except Exception as e:
                       print(f"Network smoke failed (retryable): {e}")
-                      sys.exit(0)  # don't fail CI on network
+                      sys.exit(0)
           except Exception as e:
               print(f"Integration failed: {e}")
               import traceback; traceback.print_exc()
@@ -304,12 +280,10 @@ jobs:
         run: |
           set -eux
           BRANCH="${{ steps.commit.outputs.branch }}"
-          # Check if PR already exists for this branch
           if gh pr view "$BRANCH" --json number 2>/dev/null | grep -q number; then
             echo "PR already exists for $BRANCH, skipping creation"
             exit 0
           fi
-          # Create PR
           PLAN_JSON=$(cat /tmp/plan.json)
           BODY=$(cat <<EOF
           Automated upstream update
@@ -340,5 +314,4 @@ jobs:
           BRANCH="${{ steps.commit.outputs.branch }}"
           PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number)
           echo "PR #$PR_NUMBER"
-          # Enable auto-merge squash
           gh pr merge "$PR_NUMBER" --squash --auto || echo "Auto-merge not enabled (requires branch protection + checks)"

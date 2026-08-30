@@ -17,7 +17,7 @@ jobs:
 
     env:
       NDK_VERSION: "27.0.12077973"
-      QUICKJS_REF: "master" # 必要なら固定: e.g. 2024-01-13
+      QUICKJS_REF: "master"
 
     steps:
       - name: Checkout
@@ -36,36 +36,21 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 36
+          build-tools: 36.0.0
+          ndk-version: 27.0.12077973
+          cmake-version: 3.22.1
 
-      - name: Install NDK and platform
+      - name: Verify SDK and NDK
         run: |
           set -eux
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
-          echo "Using sdkmanager: $SDKMANAGER"
-          ls -la "$(dirname "$SDKMANAGER")/" | head -n 20
-          mkdir -p "$ANDROID_HOME/licenses" || true
           ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME" --verbose || \
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME"
-          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
-          "$SDKMANAGER" --list_installed --sdk_root="$ANDROID_HOME" | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
-          # Also handle ANDROID_SDK_ROOT if different
-          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ "$ANDROID_SDK_ROOT" != "$ANDROID_HOME" ]; then
-            mkdir -p "$ANDROID_SDK_ROOT/licenses" || true
-            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_SDK_ROOT" || true
-          fi
-          if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
-            echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
-            echo "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          else
-            echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-            echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          fi
-          ls -lh "${ANDROID_HOME}/ndk/${NDK_VERSION}/" | head -n 20 || ls -lh "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/" | head -n 20 || true
-          aarch64-linux-android24-clang --version || "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+          ls -la "$ANDROID_SDK_ROOT/licenses/" 2>&1 | head -n 20 || true
+          sdkmanager --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          ls -lh "$ANDROID_HOME/ndk/27.0.12077973/" 2>&1 | head -n 20 || ls -lh "$ANDROID_SDK_ROOT/ndk/27.0.12077973/" 2>&1 | head -n 20 || true
+          aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+
       - name: Cache QuickJS
         uses: actions/cache@v4
         with:
@@ -85,7 +70,6 @@ jobs:
           cd /tmp/quickjs
           if [ "${QUICKJS_REF}" != "master" ]; then git fetch --depth 1 origin "${QUICKJS_REF}" && git checkout FETCH_HEAD; fi
           make clean || true; rm -rf .obj || true
-          # Per Android NDK other_build_systems + QuickJS Makefile: host- prefix builds host qjsc, CC is NDK clang --target
           export CC="$TOOLCHAIN/bin/clang --target=aarch64-linux-android24"
           export AR="$TOOLCHAIN/bin/llvm-ar"
           export STRIP="$TOOLCHAIN/bin/llvm-strip"
@@ -95,14 +79,14 @@ jobs:
           ls -lh qjs; file qjs
           file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           "$TOOLCHAIN/bin/llvm-readelf" -h qjs | grep -E "Class|Machine|OS/ABI" || true
-          # qjs is Android executable, cannot run on host — skip ./qjs --help
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
           file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+
       - name: (Optional) Build FFmpeg arm64-v8a
-        if: false # 有効化する場合は true に。MVPは QuickJSのみ必須、FFmpegは別ジョブ推奨
+        if: false
         run: |
           echo "FFmpeg build is heavy (30m+) — enable when needed per spec 10章"
           echo "See ytdlpAndroid/src/main/jniLibs/arm64-v8a/README.md"
