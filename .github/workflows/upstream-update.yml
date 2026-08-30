@@ -176,13 +176,11 @@ jobs:
       - name: QuickJS verification (Android arm64)
         run: |
           set -eux
-          # Build QuickJS for arm64-v8a via NDK (spec 13)
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
-          # Use official LATEST.json version's archive for reproducibility if available
-          QJS_VER=$(jq -r .version "${GITHUB_WORKSPACE}/config/upstream-versions.json" | jq -r '.quickjs.version' 2>/dev/null || cat "${GITHUB_WORKSPACE}/config/upstream-versions.json" | python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['quickjs']['version'])" -- "${GITHUB_WORKSPACE}/config/upstream-versions.json")
+          QJS_VER=$(python3 -c "import json; print(json.load(open('config/upstream-versions.json'))['quickjs']['version'])")
           echo "QuickJS version from config: $QJS_VER"
-          # Try to fetch official archive for that version, fallback to git
+          # Try official archive first (per spec 6), fallback to git
           if curl --fail --silent --show-error "https://bellard.org/quickjs/quickjs-${QJS_VER}.tar.xz" -o /tmp/quickjs.tar.xz; then
             echo "Got official archive quickjs-${QJS_VER}.tar.xz"
             rm -rf /tmp/quickjs-official
@@ -193,14 +191,14 @@ jobs:
             cd /tmp/quickjs
           fi
           make clean || true
-          export CC="aarch64-linux-android24-clang" AR="llvm-ar" STRIP="llvm-strip"
-          make -j$(nproc) qjs LDFLAGS="-static"
-          file qjs | grep -q "aarch64"
+          rm -rf .obj || true
+          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android24- qjs
+          ls -lh qjs; file qjs
+          file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
-
       - name: FFmpeg verification (Android arm64)
         run: |
           set -eux

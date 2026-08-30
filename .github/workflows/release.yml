@@ -77,9 +77,10 @@ jobs:
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
           make clean || true
-          export CC="aarch64-linux-android24-clang" AR="llvm-ar" STRIP="llvm-strip"
-          make -j$(nproc) qjs LDFLAGS="-static"
-          file qjs | grep -q "aarch64"
+          rm -rf .obj || true
+          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android24- qjs
+          ls -lh qjs; file qjs
+          file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
           chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"

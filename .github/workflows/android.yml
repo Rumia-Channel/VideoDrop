@@ -80,20 +80,19 @@ jobs:
           test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
           cd /tmp/quickjs
           if [ "${QUICKJS_REF}" != "master" ]; then git fetch --depth 1 origin "${QUICKJS_REF}" && git checkout FETCH_HEAD; fi
-          # Clean
+          # Clean host and target
           make clean || true
-          # NDK cross compile for arm64-v8a, API 24 (minSdk 24)
-          export CC="aarch64-linux-android24-clang"
-          export AR="llvm-ar"
-          export STRIP="llvm-strip"
-          # Use static linking to avoid shared lib deps
-          make -j$(nproc) qjs LDFLAGS="-static"
+          rm -rf .obj || true
+          # NDK cross compile for arm64-v8a, API 24 (minSdk 24) — use CONFIG_CLANG + CROSS_PREFIX per Makefile
+          # Do NOT use LDFLAGS="-static" on Android (Bionic doesn't support fully static PIE)
+          make -j$(nproc) CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android24- qjs
+          ls -lh qjs
           file qjs
           # Must be PIE, aarch64
-          file qjs | grep -q "aarch64" || (echo "Not aarch64" && exit 1)
-          file qjs | grep -q "pie executable\|PIE" || echo "::warning::Not PIE? file says: $(file qjs)"
-          # QuickJS version sanity
-          ./qjs --help 2>&1 | head -n 20 || true
+          file qjs | grep -qi "aarch64" || (echo "Not aarch64" && file qjs && exit 1)
+          file qjs | grep -qi "pie executable" || echo "::warning::Not PIE? file says: $(file qjs)"
+          # QuickJS version sanity — qjs --help may not exist, try -h
+          ./qjs --help 2>&1 | head -n 20 || ./qjs -h 2>&1 | head -n 20 || echo "qjs built"
           # Install to jniLibs
           mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
           cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"

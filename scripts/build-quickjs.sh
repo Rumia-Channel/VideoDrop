@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# Local QuickJS build for ytdlpAndroid (mirrors CI)
+# Local QuickJS build for ytdlpAndroid (mirrors CI) — spec 9章
 # Requires Android NDK r27 with aarch64-linux-android24-clang in PATH
 # Usage: ./scripts/build-quickjs.sh
 
@@ -31,13 +31,13 @@ if [ "$QUICKJS_REF" != "master" ]; then
 fi
 
 make clean || true
-export CC="aarch64-linux-android${API}-clang"
-export AR="llvm-ar"
-export STRIP="llvm-strip"
-make -j"$(nproc)" qjs LDFLAGS="-static"
+rm -rf .obj || true
+# Use CONFIG_CLANG + CROSS_PREFIX per Makefile (NDK Clang)
+make -j"$(nproc)" CONFIG_CLANG=y CROSS_PREFIX=aarch64-linux-android${API}- qjs
 
 file qjs
-./qjs --help 2>&1 | head -n 20 || true
+file qjs | grep -qi "aarch64" || (echo "Not aarch64" && exit 1)
+./qjs --help 2>&1 | head -n 20 || ./qjs -h 2>&1 | head -n 20 || echo "qjs built"
 
 DEST="$ROOT/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
 mkdir -p "$DEST"
