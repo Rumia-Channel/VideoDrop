@@ -1,0 +1,198 @@
+package uk.rumia_ch.videodrop.ui
+
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
+
+@Composable
+actual fun BrowserScreen(
+    onClipRequest: (url: String) -> Unit
+) {
+    var currentUrl by remember { mutableStateOf("https://www.google.com") }
+    var progress by remember { mutableStateOf(0) }
+    var canGoBack by remember { mutableStateOf(false) }
+    var canGoForward by remember { mutableStateOf(false) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ClipboxColors.Background)
+    ) {
+        // Clipbox-like top bar: サーチ / ブラウザ hint
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("ブラウザ", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                Text("検索またはURLを入力 →「＋」でクリップ", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text("https://...") },
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            var u = urlInput.trim()
+                            if (!u.startsWith("http")) u = "https://www.google.com/search?q=" + java.net.URLEncoder.encode(u, "UTF-8")
+                            currentUrl = u
+                            webViewRef?.loadUrl(u)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary)
+                    ) { Text("移動") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    Button(
+                        onClick = { webViewRef?.goBack() },
+                        enabled = canGoBack,
+                        modifier = Modifier.weight(1f).padding(end = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
+                    ) { Text("◀ 戻る") }
+                    Button(
+                        onClick = { webViewRef?.goForward() },
+                        enabled = canGoForward,
+                        modifier = Modifier.weight(1f).padding(start = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
+                    ) { Text("進む ▶") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { webViewRef?.reload() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
+                    ) { Text("更新") }
+                }
+                Row(modifier = Modifier.padding(top = 4.dp)) {
+                    Text("🔖 ブックマーク", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(end = 12.dp))
+                    Text("🕒 履歴", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                }
+            }
+        }
+
+        if (progress in 1..99) {
+            LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
+        }
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        settings.allowFileAccess = true
+                        settings.userAgentString = settings.userAgentString + " VideoDrop/1.0 ClipboxLike"
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                url?.let {
+                                    currentUrl = it
+                                    urlInput = it
+                                }
+                                canGoBack = view?.canGoBack() == true
+                                canGoForward = view?.canGoForward() == true
+                            }
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                url?.let {
+                                    currentUrl = it
+                                    urlInput = it
+                                }
+                                canGoBack = view?.canGoBack() == true
+                                canGoForward = view?.canGoForward() == true
+                            }
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                        }
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView?, newProgress: Int) { progress = newProgress }
+                        }
+                        // Generic file download detection (Clipbox also handles direct files)
+                        setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+                            // For direct file links, immediately offer clip
+                            // yt-dlp path handles video sites; this handles generic files
+                            onClipRequest(url)
+                        }
+                        loadUrl(currentUrl)
+                        webViewRef = this
+                    }
+                },
+                update = { view ->
+                    // keep reference fresh
+                    webViewRef = view
+                }
+            )
+
+            // Clipbox-like FAB: 「＋」 → Are you ok? / Really? flow is now in Download dialog
+            // Spec: Browserでページ表示 →「＋」→ Are you ok? → Really? → 保存先
+            // We map to: FAB クリップ → onClipRequest(currentUrl)
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val u = webViewRef?.url ?: currentUrl
+                        onClipRequest(u)
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary),
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    Text("＋ クリップ", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                }
+            }
+        }
+
+        // Hint bar like Clipbox: 動画は一度再生してから「＋」
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7ED))
+        ) {
+            Text(
+                "💡 ヒント: 動画ページでは一度再生してから「＋ クリップ」を押すと検出率が上がります（Clipbox流）",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF9A3412),
+                modifier = Modifier.padding(8.dp)
+            )
+        }
+    }
+}

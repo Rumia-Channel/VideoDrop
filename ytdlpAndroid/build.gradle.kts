@@ -1,0 +1,63 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.kotlinAndroid)
+    alias(libs.plugins.chaquopy)
+}
+android {
+    namespace = "uk.rumia_ch.videodrop.ytdlp"
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
+
+    defaultConfig {
+        minSdk = libs.versions.android.minSdk.get().toInt()
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+
+        // Required for native .so that are actually PIE executables
+        // to be extracted as real files accessible via nativeLibraryDir
+        packaging {
+            // AGP 8+ uses packaging.jniLibs.useLegacyPackaging true to extract
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    buildFeatures {
+        // no compose needed here
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_11
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.13"
+        pip {
+            // Pinned per requirements-android.txt - reproducible builds, no unconditional latest
+            install("yt-dlp==2025.08.11")
+            install("yt-dlp-ejs==2024.10.22")
+        }
+    }
+}
+
+dependencies {
+    implementation(project(":core"))
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.serialization.json)
+}

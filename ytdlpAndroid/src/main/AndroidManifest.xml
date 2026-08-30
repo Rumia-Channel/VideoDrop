@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ytdlpAndroid is Android Library; permissions and Service are merged into app -->
+    <application>
+        <!-- Foreground Service per spec section 12, type dataSync for Android 14+ -->
+        <service
+            android:name=".ytdlp.YtDlpDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+
+</manifest>
