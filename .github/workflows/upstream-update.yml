@@ -100,9 +100,26 @@ jobs:
           ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
           ls -la "$ANDROID_SDK_ROOT/licenses/" 2>&1 | head -n 20 || true
           sdkmanager --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          if [ ! -d "$ANDROID_HOME/ndk/27.0.12077973" ] && [ ! -d "$ANDROID_SDK_ROOT/ndk/27.0.12077973" ]; then
+            echo "NDK not found, installing via sdkmanager..."
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+            if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
+            mkdir -p "$ANDROID_HOME/licenses" || true
+            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
+            yes | "$SDKMANAGER" --install "ndk;27.0.12077973" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME" --verbose || \
+            yes | "$SDKMANAGER" --install "ndk;27.0.12077973" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME"
+            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
+          fi
           ls -lh "$ANDROID_HOME/ndk/27.0.12077973/" 2>&1 | head -n 20 || ls -lh "$ANDROID_SDK_ROOT/ndk/27.0.12077973/" 2>&1 | head -n 20 || true
-          aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
-
+          if [ -d "$ANDROID_HOME/ndk/27.0.12077973" ]; then
+            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+            echo "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          elif [ -d "$ANDROID_SDK_ROOT/ndk/27.0.12077973" ]; then
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> $GITHUB_ENV
+            echo "$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          fi
+          aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version || "$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
       - name: Download plan artifact
         uses: actions/download-artifact@v4
         with:
