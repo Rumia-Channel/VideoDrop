@@ -16,12 +16,6 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
-
-        // Required for native .so that are actually PIE executables
-        // to be extracted as real files accessible via nativeLibraryDir
-        packaging {
-            // AGP 8+ uses packaging.jniLibs.useLegacyPackaging true to extract
-        }
     }
 
     packaging {
@@ -48,8 +42,7 @@ kotlin {
 chaquopy {
     defaultConfig {
         version = "3.13"
-        // Chaquopy 17 expects List<String> for buildPython
-        buildPython = listOf("python3")
+        buildPython = listOf("python3.13")
         pip {
             // Generated from config/upstream-versions.json — do not edit manually
             install("yt-dlp==2026.08.19")

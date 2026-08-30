@@ -101,18 +101,14 @@ class DownloadLocationRepository(private val context: Context) {
         return when (root.type) {
             "saf" -> {
                 try {
-                    val targetUri = if (folderUriOrPath == null) root.uri?.let { Uri.parse(it) } else Uri.parse(folderUriOrPath)
-                        ?: return emptyList()
-                    val doc = DocumentFile.fromTreeUri(context, targetUri)
+                    val targetUri: Uri = if (folderUriOrPath == null) {
+                        root.uri?.let { Uri.parse(it) } ?: return emptyList()
+                    } else {
+                        Uri.parse(folderUriOrPath)
+                    }
+                    val targetDoc = DocumentFile.fromTreeUri(context, targetUri)
                         ?: DocumentFile.fromSingleUri(context, targetUri)
                         ?: return emptyList()
-                    // If target is file, list its parent? For SAF, we need to handle both
-                    val targetDoc = if (folderUriOrPath == null) {
-                        DocumentFile.fromTreeUri(context, Uri.parse(root.uri!!))
-                    } else {
-                        DocumentFile.fromTreeUri(context, Uri.parse(folderUriOrPath))
-                            ?: DocumentFile.fromSingleUri(context, Uri.parse(folderUriOrPath))
-                    } ?: return emptyList()
                     targetDoc.listFiles()
                         .filter { !it.isDirectory }
                         .map { FileItem(it.name ?: "file", it.uri.toString(), it.name ?: "") }
