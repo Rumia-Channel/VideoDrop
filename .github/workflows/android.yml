@@ -144,6 +144,7 @@ jobs:
           cd /tmp/ffmpeg
 
           ./configure \
+            --enable-cross-compile \
             --target-os=android --arch=aarch64 --cpu=armv8-a \
             --cc="$CC" --ld="$CC" \
             --ar="$TOOLCHAIN/bin/llvm-ar" \
