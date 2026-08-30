@@ -60,10 +60,18 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
           echo "Using sdkmanager: $SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses || true
-          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --verbose
-          yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          ls -la "$(dirname "$SDKMANAGER")/" | head -n 20
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
+          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
+          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME" --verbose || \
+          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --sdk_root="$ANDROID_HOME"
+          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" || true
+          "$SDKMANAGER" --list_installed --sdk_root="$ANDROID_HOME" | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
+          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ "$ANDROID_SDK_ROOT" != "$ANDROID_HOME" ]; then
+            mkdir -p "$ANDROID_SDK_ROOT/licenses" || true
+            yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_SDK_ROOT" || true
+          fi
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
           if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
             echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
@@ -72,6 +80,7 @@ jobs:
             echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
             echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
           fi
+          ls -lh "${ANDROID_HOME}/ndk/${NDK_VERSION}/" | head -n 20 || ls -lh "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/" | head -n 20 || true
           aarch64-linux-android24-clang --version || "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
       - name: Build QuickJS arm64-v8a
         run: |
