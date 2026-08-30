@@ -98,8 +98,9 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n1); fi
           echo "Using sdkmanager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --verbose || yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools" --verbose
           yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
           if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
             echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
@@ -109,9 +110,9 @@ jobs:
             echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
           fi
           aarch64-linux-android24-clang --version || "${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+
       - name: Download plan artifact
         uses: actions/download-artifact@v4
-        with:
           name: upstream-plan
           path: /tmp
 
