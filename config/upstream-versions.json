@@ -1,0 +1,14 @@
+{
+  "yt-dlp": {
+    "version": "2026.08.19"
+  },
+  "yt-dlp-ejs": {
+    "version": "0.8.0"
+  },
+  "quickjs": {
+    "version": "2026-06-04"
+  },
+  "ffmpeg": {
+    "version": "9.0.1"
+  }
+}

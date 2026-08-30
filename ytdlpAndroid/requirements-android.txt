@@ -1,4 +1,4 @@
 # Pinned yt-dlp versions for reproducible Android builds per spec section 5
-# Update after testing on arm64 device; do not float to latest unconditionally.
-yt-dlp==2025.08.11
-yt-dlp-ejs==2024.10.22
+# Single source: config/upstream-versions.json — do not edit manually, use scripts/update_pins.py
+yt-dlp==2026.08.19
+yt-dlp-ejs==0.8.0

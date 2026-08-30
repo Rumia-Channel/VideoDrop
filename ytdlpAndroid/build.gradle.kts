@@ -48,9 +48,9 @@ chaquopy {
     defaultConfig {
         version = "3.13"
         pip {
-            // Pinned per requirements-android.txt - reproducible builds, no unconditional latest
-            install("yt-dlp==2025.08.11")
-            install("yt-dlp-ejs==2024.10.22")
+            // Generated from config/upstream-versions.json — do not edit manually
+            install("yt-dlp==2026.08.19")
+            install("yt-dlp-ejs==0.8.0")
         }
     }
 }
