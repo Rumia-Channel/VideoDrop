@@ -34,6 +34,11 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -75,6 +80,13 @@ jobs:
             echo "$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
           fi
           aarch64-linux-android24-clang --version || "$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version || "$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" --version
+
+      - name: Verify Python for Chaquopy
+        run: |
+          python3 --version
+          pip --version || pip3 --version
+          python3 -c "import sys; print(sys.executable, sys.version)"
+
       - name: Cache QuickJS
         uses: actions/cache@v4
         with:

@@ -47,6 +47,8 @@ kotlin {
 chaquopy {
     defaultConfig {
         version = "3.13"
+        // Use python3 from setup-python (3.13) — avoids "Couldn't find Python 3.13" on CI
+        buildPython = "python3"
         pip {
             // Generated from config/upstream-versions.json — do not edit manually
             install("yt-dlp==2026.08.19")
