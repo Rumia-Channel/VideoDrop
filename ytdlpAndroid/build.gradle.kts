@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.chaquopy)
 }
+@Suppress("DEPRECATION")
 android {
     namespace = "uk.rumia_ch.videodrop.ytdlp"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -47,8 +48,8 @@ kotlin {
 chaquopy {
     defaultConfig {
         version = "3.13"
-        // Use python3 from setup-python (3.13) — avoids "Couldn't find Python 3.13" on CI
-        buildPython = "python3"
+        // Chaquopy 17 expects List<String> for buildPython
+        buildPython = listOf("python3")
         pip {
             // Generated from config/upstream-versions.json — do not edit manually
             install("yt-dlp==2026.08.19")
