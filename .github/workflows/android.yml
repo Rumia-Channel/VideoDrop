@@ -1,0 +1,116 @@
+name: Android
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# CIはGitHub上でのビルドを前提とし、QuickJSをNDKでクロスビルドして同梱する
+# 仕様: spec 9章 (arm64-v8aのみ, PIE, libqjsexec.so, nativeLibraryDir)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      NDK_VERSION: "27.0.12077973"
+      QUICKJS_REF: "master" # 必要なら固定: e.g. 2024-01-13
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Azul Zulu, spec gradle-daemon-jvm.properties)
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and platform
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
+          echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          ndk-build --version || true
+          aarch64-linux-android24-clang --version
+
+      - name: Cache QuickJS
+        uses: actions/cache@v4
+        with:
+          path: /tmp/quickjs
+          key: quickjs-${{ env.QUICKJS_REF }}-${{ env.NDK_VERSION }}
+          restore-keys: |
+            quickjs-
+
+      - name: Build QuickJS (arm64-v8a PIE)
+        run: |
+          set -eux
+          test -d /tmp/quickjs || git clone https://github.com/bellard/quickjs.git /tmp/quickjs
+          cd /tmp/quickjs
+          if [ "${QUICKJS_REF}" != "master" ]; then git fetch --depth 1 origin "${QUICKJS_REF}" && git checkout FETCH_HEAD; fi
+          # Clean
+          make clean || true
+          # NDK cross compile for arm64-v8a, API 24 (minSdk 24)
+          export CC="aarch64-linux-android24-clang"
+          export AR="llvm-ar"
+          export STRIP="llvm-strip"
+          # Use static linking to avoid shared lib deps
+          make -j$(nproc) qjs LDFLAGS="-static"
+          file qjs
+          # Must be PIE, aarch64
+          file qjs | grep -q "aarch64" || (echo "Not aarch64" && exit 1)
+          file qjs | grep -q "pie executable\|PIE" || echo "::warning::Not PIE? file says: $(file qjs)"
+          # QuickJS version sanity
+          ./qjs --help 2>&1 | head -n 20 || true
+          # Install to jniLibs
+          mkdir -p "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a"
+          cp -v qjs "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+          chmod 755 "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+          ls -lh "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/"
+          file "${GITHUB_WORKSPACE}/ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so"
+
+      - name: (Optional) Build FFmpeg arm64-v8a
+        if: false # 有効化する場合は true に。MVPは QuickJSのみ必須、FFmpegは別ジョブ推奨
+        run: |
+          echo "FFmpeg build is heavy (30m+) — enable when needed per spec 10章"
+          echo "See ytdlpAndroid/src/main/jniLibs/arm64-v8a/README.md"
+
+      - name: Verify jniLibs
+        run: |
+          ls -R ytdlpAndroid/src/main/jniLibs || true
+          test -f ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so || (echo "libqjsexec.so missing!" && exit 1)
+          echo "libqjsexec.so size: $(stat -c%s ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so) bytes"
+
+      - name: Assemble Debug (verifies jniLibs extraction)
+        run: |
+          chmod +x gradlew
+          ./gradlew :androidApp:assembleDebug --stacktrace
+          unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -E "libqjsexec|lib/arm64" || echo "::warning::libqjsexec not in APK (check packaging.jniLibs.useLegacyPackaging)"
+
+      - name: Run JVM tests (core/composeApp)
+        run: ./gradlew :core:jvmTest :core:jvmJar :composeApp:jvmJar --continue
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: androidApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - name: Upload jniLibs
+        uses: actions/upload-artifact@v4
+        with:
+          name: jniLibs-arm64
+          path: ytdlpAndroid/src/main/jniLibs/arm64-v8a/libqjsexec.so
+          if-no-files-found: error
