@@ -64,8 +64,8 @@ jobs:
 
 
       - name: Verify SDK and NDK
+        run: |
           set -eux
-          ls -la "$ANDROID_HOME/licenses/" 2>&1 | head -n 20 || true
           ls -la "$ANDROID_SDK_ROOT/licenses/" 2>&1 | head -n 20 || true
           sdkmanager --list_installed | grep -E "platforms;android-36|build-tools;36|ndk;" | head -n 20 || true
           if [ ! -d "$ANDROID_HOME/ndk/27.0.12077973" ] && [ ! -d "$ANDROID_SDK_ROOT/ndk/27.0.12077973" ]; then
