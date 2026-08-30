@@ -27,7 +27,8 @@ data class DownloadRequest(
     val id: String,
     val url: String,
     val selection: FormatSelection,
-    val output: OutputType
+    val output: OutputType,
+    val targetFolderUri: String? = null // SAF tree child uri or File path, null = root of download destination
 )
 
 sealed interface FormatSelection {

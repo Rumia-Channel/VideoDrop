@@ -1,14 +1,17 @@
 package uk.rumia_ch.videodrop.ytdlp
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -203,12 +206,18 @@ class AndroidYtDlpEngine(
                         } else if (resEl["status"]?.jsonPrimitive?.contentOrNull == "Cancelled") {
                             trySend(DownloadEvent.Cancelled(id))
                         } else if (resEl["status"]?.jsonPrimitive?.contentOrNull == "Completed") {
-                            // Find actual file in staging dir (yt-dlp may have produced .mp4, .webm etc.)
                             val files = staging.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") }
                             val mainFile = files?.maxByOrNull { it.length() }
                             if (mainFile != null) {
-                                // Phase 9 will move via MediaStore; for now emit staging uri
-                                trySend(DownloadEvent.Completed(id, mainFile.absolutePath))
+                                // Copy to user-chosen download destination (SDカード含む) if set
+                                val finalUri = try {
+                                    copyToChosenDestination(mainFile, request.targetFolderUri)
+                                } catch (e: Exception) {
+                                    // Fallback to staging if copy fails
+                                    e.printStackTrace()
+                                    mainFile.absolutePath
+                                }
+                                trySend(DownloadEvent.Completed(id, finalUri))
                             } else {
                                 trySend(DownloadEvent.Failed(id, uk.rumia_ch.videodrop.core.YtDlpError.Unknown("No output file found in $staging")))
                             }
@@ -341,6 +350,57 @@ class AndroidYtDlpEngine(
             } catch (_: Exception) {
                 "exists"
             }
+        }
+    }
+
+    private fun copyToChosenDestination(stagingFile: File, targetFolderUri: String?): String {
+        return try {
+            val repo = DownloadLocationRepository(context)
+            val root = runBlocking { repo.rootFlow.first() }
+            when (root.type) {
+                "saf" -> {
+                    val rootUriStr = root.uri ?: return stagingFile.absolutePath
+                    val targetUriStr = targetFolderUri ?: rootUriStr
+                    val targetDoc = try {
+                        DocumentFile.fromTreeUri(context, Uri.parse(targetUriStr))
+                            ?: DocumentFile.fromTreeUri(context, Uri.parse(rootUriStr))
+                    } catch (_: Exception) { null } ?: return stagingFile.absolutePath
+                    // Determine mime type
+                    val mime = when (stagingFile.extension.lowercase()) {
+                        "mp4" -> "video/mp4"
+                        "webm" -> "video/webm"
+                        "mkv" -> "video/x-matroska"
+                        "m4a", "aac" -> "audio/mp4"
+                        "mp3" -> "audio/mpeg"
+                        "opus" -> "audio/opus"
+                        else -> "video/mp4"
+                    }
+                    val newFile = targetDoc.createFile(mime, stagingFile.name) ?: return stagingFile.absolutePath
+                    context.contentResolver.openOutputStream(newFile.uri)?.use { out ->
+                        stagingFile.inputStream().use { inp -> inp.copyTo(out) }
+                    }
+                    // Optionally delete staging after copy? Keep for now
+                    newFile.uri.toString()
+                }
+                else -> {
+                    // For internal or public, we use staging path for now; MediaStoreHelper will handle public
+                    // If targetFolderUri is a File path (internal subfolder), copy there
+                    if (targetFolderUri != null && File(targetFolderUri).exists() && File(targetFolderUri).isDirectory) {
+                        val dest = File(targetFolderUri, stagingFile.name)
+                        stagingFile.copyTo(dest, overwrite = true)
+                        dest.absolutePath
+                    } else if (root.type == "internal") {
+                        // Already in internal cache, just return
+                        stagingFile.absolutePath
+                    } else {
+                        // For public Movies/Music, let MediaStoreHelper handle; for now return staging
+                        stagingFile.absolutePath
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stagingFile.absolutePath
         }
     }
 }

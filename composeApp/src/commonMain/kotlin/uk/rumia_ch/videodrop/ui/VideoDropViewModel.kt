@@ -70,10 +70,10 @@ class VideoDropViewModel(
         _analyzeState.value = AnalyzeState.Idle
     }
 
-    fun download(url: String, selection: FormatSelection, output: OutputType) {
+    fun download(url: String, selection: FormatSelection, output: OutputType, targetFolderUri: String? = null) {
         val id = generateDownloadId(url)
         currentDownloadId = id
-        val request = DownloadRequest(id, url, selection, output)
+        val request = DownloadRequest(id, url, selection, output, targetFolderUri)
         currentDownloadJob?.cancel()
         currentDownloadJob = viewModelScope.launch {
             repository.download(request)

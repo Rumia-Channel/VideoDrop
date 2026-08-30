@@ -1,13 +1,19 @@
 package uk.rumia_ch.videodrop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
@@ -20,13 +26,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import uk.rumia_ch.videodrop.core.AnalyzeState
 import uk.rumia_ch.videodrop.core.DefaultDownloadRepository
+import uk.rumia_ch.videodrop.core.FormatSelection
 import uk.rumia_ch.videodrop.core.NoOpYtDlpEngine
+import uk.rumia_ch.videodrop.core.OutputType
 import uk.rumia_ch.videodrop.core.YtDlpEngine
 import uk.rumia_ch.videodrop.ui.BrowserScreen
 import uk.rumia_ch.videodrop.ui.DownloadScreen
+import uk.rumia_ch.videodrop.ui.FolderUi
 import uk.rumia_ch.videodrop.ui.MediaDetailScreen
 import uk.rumia_ch.videodrop.ui.MyCollectionScreen
 import uk.rumia_ch.videodrop.ui.PlayerScreen
@@ -40,7 +50,17 @@ import uk.rumia_ch.videodrop.ui.theme.ClipboxTheme
 fun App(
     engine: YtDlpEngine = NoOpYtDlpEngine(),
     externalClipUrl: String? = null,
-    onClipUrlConsumed: (() -> Unit)? = null
+    onClipUrlConsumed: (() -> Unit)? = null,
+    downloadRootDisplay: String = "内部ストレージ (cacheDir)",
+    onPickDownloadFolder: (() -> Unit)? = null,
+    onResetDownloadFolder: (() -> Unit)? = null,
+    folders: List<FolderUi> = emptyList(),
+    currentFolderId: String? = null,
+    onSelectFolder: ((String?) -> Unit)? = null,
+    onCreateFolder: ((String) -> Unit)? = null,
+    onRenameFolder: ((String, String) -> Unit)? = null,
+    onDeleteFolder: ((String) -> Unit)? = null,
+    onMoveFile: ((String, String) -> Unit)? = null
 ) {
     ClipboxTheme {
         val repository = remember(engine) { DefaultDownloadRepository(engine) }
@@ -52,6 +72,10 @@ fun App(
         var playerUri by remember { mutableStateOf("") }
         var playerTitle by remember { mutableStateOf("") }
         var playerIsVideo by remember { mutableStateOf(true) }
+        // Folder chooser for download destination
+        var showFolderChooser by remember { mutableStateOf(false) }
+        var pendingSelection by remember { mutableStateOf<FormatSelection?>(null) }
+        var pendingOutput by remember { mutableStateOf<OutputType?>(null) }
 
         val analyzeState by viewModel.analyzeState.collectAsState()
         LaunchedEffect(analyzeState) {
@@ -60,7 +84,6 @@ fun App(
             }
         }
 
-        // Hook from default browser via Share / CustomTabs
         LaunchedEffect(externalClipUrl) {
             if (!externalClipUrl.isNullOrBlank()) {
                 pendingUrl = externalClipUrl
@@ -90,18 +113,23 @@ fun App(
                             playerTitle = title
                             playerIsVideo = isVideo
                             screen = Screen.Player
-                        }
+                        },
+                        folders = folders,
+                        onCreateFolder = onCreateFolder,
+                        onRenameFolder = onRenameFolder,
+                        onDeleteFolder = onDeleteFolder,
+                        onMoveFile = onMoveFile,
+                        downloadRootDisplay = downloadRootDisplay,
+                        currentFolderId = currentFolderId,
+                        onSelectFolder = onSelectFolder
                     )
                     Screen.Detail -> MediaDetailScreen(
                         viewModel = viewModel,
                         onDownload = { sel, out ->
-                            val url = pendingUrl
-                                ?: (viewModel.analyzeState.value as? AnalyzeState.Success)?.media?.let { "https://www.youtube.com/watch?v=${it.id}" }
-                                ?: ""
-                            if (url.isNotBlank()) {
-                                viewModel.download(url, sel, out)
-                                screen = Screen.MyCollection
-                            }
+                            // Clipbox流: 保存先フォルダを選んでからダウンロード
+                            pendingSelection = sel
+                            pendingOutput = out
+                            showFolderChooser = true
                         },
                         onBack = { screen = Screen.Browser }
                     )
@@ -112,7 +140,13 @@ fun App(
                         onBack = { screen = Screen.MyCollection }
                     )
                     Screen.Download -> DownloadScreen(viewModel = viewModel, onBack = { screen = Screen.MyCollection })
-                    Screen.Settings -> SettingsScreen(viewModel = viewModel, onBack = { screen = Screen.Browser })
+                    Screen.Settings -> SettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { screen = Screen.Browser },
+                        downloadRootDisplay = downloadRootDisplay,
+                        onPickDownloadFolder = onPickDownloadFolder,
+                        onResetToInternal = onResetDownloadFolder
+                    )
                 }
             }
 
@@ -140,6 +174,62 @@ fun App(
             }
         }
 
+        // Folder chooser for download destination (Clipbox: 保存先フォルダーを選び、OK)
+        if (showFolderChooser) {
+            AlertDialog(
+                onDismissRequest = { showFolderChooser = false; pendingSelection = null; pendingOutput = null },
+                title = { Text("保存先フォルダを選択") },
+                text = {
+                    Column {
+                        Text("「${downloadRootDisplay}」配下のどこに保存しますか？", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                        Text("フォルダが無い場合はマイコレクションで作成できます。", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(8.dp))
+                        // Root
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                                val url = pendingUrl ?: (viewModel.analyzeState.value as? AnalyzeState.Success)?.media?.let { "https://www.youtube.com/watch?v=${it.id}" } ?: ""
+                                if (url.isNotBlank() && pendingSelection != null && pendingOutput != null) {
+                                    viewModel.download(url, pendingSelection!!, pendingOutput!!, null)
+                                    showFolderChooser = false
+                                    pendingSelection = null
+                                    pendingOutput = null
+                                    screen = Screen.MyCollection
+                                }
+                            },
+                            colors = CardDefaults.cardColors(containerColor = if (currentFolderId == null) androidx.compose.ui.graphics.Color(0xFFDBEAFE) else androidx.compose.ui.graphics.Color.White)
+                        ) {
+                            Text("📁 ルート (${downloadRootDisplay})", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (folders.isEmpty()) {
+                            Text("サブフォルダはありません", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(8.dp))
+                        } else {
+                            LazyColumn {
+                                items(folders) { f ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                                            val url = pendingUrl ?: (viewModel.analyzeState.value as? AnalyzeState.Success)?.media?.let { "https://www.youtube.com/watch?v=${it.id}" } ?: ""
+                                            if (url.isNotBlank() && pendingSelection != null && pendingOutput != null) {
+                                                viewModel.download(url, pendingSelection!!, pendingOutput!!, f.id)
+                                                showFolderChooser = false
+                                                pendingSelection = null
+                                                pendingOutput = null
+                                                screen = Screen.MyCollection
+                                            }
+                                        },
+                                        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.White)
+                                    ) {
+                                        Text("${f.icon} ${f.name}", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showFolderChooser = false }) { Text("キャンセル") } }
+            )
+        }
+
         if (showAreYouOk && pendingUrl != null) {
             AlertDialog(
                 onDismissRequest = { showAreYouOk = false },
@@ -160,7 +250,7 @@ fun App(
             AlertDialog(
                 onDismissRequest = { showReally = false },
                 title = { Text("Really?") },
-                text = { Text("yt-dlpで解析して、動画 or 音楽 を選んで保存します。\nログインが必要な動画は、デフォルトブラウザでログイン済みなら共有経由でCookieを活用できます。") },
+                text = { Text("yt-dlpで解析して、動画 or 音楽 を選んで保存します。\n保存先「${downloadRootDisplay}」配下に保存され、マイコレクションで整理できます。") },
                 confirmButton = {
                     TextButton(onClick = {
                         showReally = false
