@@ -37,11 +37,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 actual fun BrowserScreen(
     onClipRequest: (url: String) -> Unit
 ) {
-    var currentUrl by remember { mutableStateOf("https://www.google.com") }
+    var urlInput by remember { mutableStateOf("https://m.youtube.com") }
+    var currentUrl by remember { mutableStateOf("https://m.youtube.com") }
     var progress by remember { mutableStateOf(0) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
@@ -52,7 +54,6 @@ actual fun BrowserScreen(
             .fillMaxSize()
             .background(ClipboxColors.Background)
     ) {
-        // Clipbox-like top bar: サーチ / ブラウザ hint
         Card(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             shape = RoundedCornerShape(12.dp),
@@ -60,8 +61,8 @@ actual fun BrowserScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text("ブラウザ", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
-                Text("検索またはURLを入力 →「＋」でクリップ", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Text("ブラウザ — YouTube専用", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                Text("YouTubeの動画ページを開き、再生してから「＋ クリップ」で動画/音楽を選択保存", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -69,7 +70,7 @@ actual fun BrowserScreen(
                         onValueChange = { urlInput = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("https://...") },
+                        placeholder = { Text("https://m.youtube.com/...") },
                         shape = RoundedCornerShape(8.dp)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -146,10 +147,7 @@ actual fun BrowserScreen(
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) { progress = newProgress }
                         }
-                        // Generic file download detection (Clipbox also handles direct files)
-                        setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-                            // For direct file links, immediately offer clip
-                            // yt-dlp path handles video sites; this handles generic files
+                        setDownloadListener { url, _, _, _, _ ->
                             onClipRequest(url)
                         }
                         loadUrl(currentUrl)
@@ -157,14 +155,9 @@ actual fun BrowserScreen(
                     }
                 },
                 update = { view ->
-                    // keep reference fresh
                     webViewRef = view
                 }
             )
-
-            // Clipbox-like FAB: 「＋」 → Are you ok? / Really? flow is now in Download dialog
-            // Spec: Browserでページ表示 →「＋」→ Are you ok? → Really? → 保存先
-            // We map to: FAB クリップ → onClipRequest(currentUrl)
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)
             ) {
@@ -182,13 +175,12 @@ actual fun BrowserScreen(
             }
         }
 
-        // Hint bar like Clipbox: 動画は一度再生してから「＋」
         Card(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7ED))
         ) {
             Text(
-                "💡 ヒント: 動画ページでは一度再生してから「＋ クリップ」を押すと検出率が上がります（Clipbox流）",
+                "💡 YouTube専用: ブラウザでYouTube動画を開き一度再生→「＋ クリップ」→動画/音楽を選択。PDF等の文書は対象外。",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF9A3412),
                 modifier = Modifier.padding(8.dp)

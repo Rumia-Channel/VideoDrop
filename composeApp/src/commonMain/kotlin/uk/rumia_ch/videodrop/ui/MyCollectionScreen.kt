@@ -22,7 +22,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -39,35 +38,38 @@ import androidx.compose.ui.unit.dp
 import uk.rumia_ch.videodrop.core.DownloadEvent
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
 
+/**
+ * YouTube特化版 マイコレクション
+ * - PDF/文書ビューアーは対象外 (ユーザー要望)
+ * - ダウンロードしたYouTubeの動画/音楽のみ 表示・再生
+ */
 @Composable
 fun MyCollectionScreen(
     viewModel: VideoDropViewModel,
-    onOpenFile: (String) -> Unit = {}
+    onOpenFile: (uri: String, title: String, isVideo: Boolean) -> Unit = { _, _, _ -> }
 ) {
     val events by viewModel.downloadEvents.collectAsState()
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf("すべて") }
+    var filter by remember { mutableStateOf("すべて") } // すべて / 動画 / 音楽
     var isGrid by remember { mutableStateOf(false) }
-    var sortBy by remember { mutableStateOf("日付") }
 
-    // Derive file list from Completed events
     val files = remember(events) {
         events.values.filterIsInstance<DownloadEvent.Completed>().map {
-            // uri is staging path; display name from uri
             val name = it.uri.substringAfterLast("/")
-            FileItem(name = name, uri = it.uri, id = it.id, size = "—", date = "今日")
+            val isVideo = name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mkv")
+            // Title fallback is name without ext
+            val title = name.substringBeforeLast(".")
+            FileItem(name = name, uri = it.uri, id = it.id, title = title, isVideo = isVideo)
         }
     }
 
     val filtered = remember(files, query, filter) {
         files.filter {
             val q = query.trim()
-            val matchesQuery = q.isEmpty() || it.name.contains(q, ignoreCase = true)
+            val matchesQuery = q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.title.contains(q, ignoreCase = true)
             val matchesFilter = when (filter) {
-                "動画" -> it.name.endsWith(".mp4") || it.name.endsWith(".webm") || it.name.endsWith(".mkv")
-                "音楽" -> it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".opus")
-                "画像" -> it.name.endsWith(".jpg") || it.name.endsWith(".png")
-                "書類" -> it.name.endsWith(".pdf") || it.name.endsWith(".zip")
+                "動画" -> it.isVideo
+                "音楽" -> !it.isVideo
                 else -> true
             }
             matchesQuery && matchesFilter
@@ -77,30 +79,28 @@ fun MyCollectionScreen(
     Column(
         modifier = Modifier.fillMaxSize().background(ClipboxColors.Background).padding(12.dp)
     ) {
-        // Top: Clipbox-like header
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("マイコレクション", style = MaterialTheme.typography.titleLarge, color = ClipboxColors.TextPrimary, modifier = Modifier.weight(1f))
+            Text("YouTubeのみ", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(end = 8.dp))
             Button(
-                onClick = { /* TODO: create folder dialog */ },
+                onClick = { /* 将来: フォルダ作成 */ },
                 colors = ButtonDefaults.buttonColors(containerColor = ClipboxColors.Primary),
                 shape = RoundedCornerShape(8.dp)
-            ) { Text("＋ 新規フォルダ") }
+            ) { Text("＋ フォルダ") }
         }
         Spacer(Modifier.height(8.dp))
 
-        // Search like Clipbox: 🔍 ファイルを検索
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("🔍 ファイルを検索", color = ClipboxColors.TextSecondary) },
+            placeholder = { Text("🔍 YouTubeの保存動画を検索", color = ClipboxColors.TextSecondary) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         )
         Spacer(Modifier.height(8.dp))
 
-        // Filter chips: すべて / 動画 / 音楽 / 画像 / 書類 (Clipbox doc categories)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("すべて", "動画", "音楽", "画像", "書類").forEach { f ->
+            listOf("すべて", "動画", "音楽").forEach { f ->
                 FilterChip(
                     selected = filter == f,
                     onClick = { filter = f },
@@ -110,25 +110,15 @@ fun MyCollectionScreen(
         }
         Spacer(Modifier.height(8.dp))
 
-        // Folders row (Clipbox folders: 動画 / 書類 etc.)
+        // Clipbox風 フォルダは動画/音楽のみ
         Text("フォルダ", style = MaterialTheme.typography.titleSmall, color = ClipboxColors.TextPrimary)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-            FolderCard(name = "動画", count = files.count { it.name.contains(".mp4") }, icon = "🎬")
-            FolderCard(name = "音楽", count = files.count { it.name.contains(".mp3") || it.name.contains(".m4a") }, icon = "🎵")
-            FolderCard(name = "書類", count = files.count { it.name.contains(".pdf") }, icon = "📄")
+            FolderCard(name = "動画", count = files.count { it.isVideo }, icon = "🎬")
+            FolderCard(name = "音楽", count = files.count { !it.isVideo }, icon = "🎵")
         }
 
-        // Sort & view toggle
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("ファイル", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            listOf("日付", "名前", "サイズ").forEach { s ->
-                FilterChip(
-                    selected = sortBy == s,
-                    onClick = { sortBy = s },
-                    label = { Text(s, style = MaterialTheme.typography.bodySmall) },
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-            }
+            Text("保存したYouTube", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             Button(
                 onClick = { isGrid = !isGrid },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = ClipboxColors.TextPrimary)
@@ -136,18 +126,17 @@ fun MyCollectionScreen(
         }
 
         if (filtered.isEmpty()) {
-            // Empty state like Clipbox: 説明
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("📁", style = MaterialTheme.typography.headlineLarge)
-                    Text("ファイルがありません", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
-                    Text("ブラウザで「＋ クリップ」して保存すると、ここに表示されます", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                    Text("🎬", style = MaterialTheme.typography.headlineLarge)
+                    Text("保存したYouTube動画はありません", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextPrimary)
+                    Text("ブラウザでYouTubeを開き「＋ クリップ」→「動画」or「音楽」を選ぶとここに表示され、タップで再生できます", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                     Spacer(Modifier.height(8.dp))
-                    Text("対応: 動画 / 音楽 / 画像 / PDF / テキスト / zip / rar (Clipbox同等)", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                    Text("対応: YouTube 動画→動画/音楽 選択保存。PDF等の文書は対象外", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
                 }
             }
         } else {
@@ -162,7 +151,6 @@ fun MyCollectionScreen(
             }
         }
 
-        // Downloading section (ongoing)
         val downloading = events.values.filterIsInstance<DownloadEvent.Progress>()
         if (downloading.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -170,7 +158,7 @@ fun MyCollectionScreen(
             downloading.forEach { ev ->
                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF))) {
                     Column(modifier = Modifier.padding(8.dp)) {
-                        Text(ev.id.take(16) + "...", style = MaterialTheme.typography.bodySmall)
+                        Text(ev.id.take(16) + "...  YouTube", style = MaterialTheme.typography.bodySmall)
                         Text("${ev.percent?.toInt() ?: 0}%  ${ev.speedBytesPerSecond?.let { "${it/1024}KB/s"} ?: ""}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -179,7 +167,7 @@ fun MyCollectionScreen(
     }
 }
 
-private data class FileItem(val name: String, val uri: String, val id: String, val size: String, val date: String)
+private data class FileItem(val name: String, val uri: String, val id: String, val title: String, val isVideo: Boolean)
 
 @Composable
 private fun FolderCard(name: String, count: Int, icon: String) {
@@ -198,17 +186,10 @@ private fun FolderCard(name: String, count: Int, icon: String) {
 }
 
 @Composable
-private fun FileRowCard(item: FileItem, onOpen: (String) -> Unit) {
-    val icon = when {
-        item.name.endsWith(".mp4") || item.name.endsWith(".mkv") -> "🎬"
-        item.name.endsWith(".mp3") || item.name.endsWith(".m4a") -> "🎵"
-        item.name.endsWith(".pdf") -> "📄"
-        item.name.endsWith(".jpg") || item.name.endsWith(".png") -> "🖼"
-        item.name.endsWith(".zip") || item.name.endsWith(".rar") -> "🗜"
-        else -> "📄"
-    }
+private fun FileRowCard(item: FileItem, onOpen: (String, String, Boolean) -> Unit) {
+    val icon = if (item.isVideo) "🎬" else "🎵"
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(item.uri) },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(item.uri, item.title, item.isVideo) },
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -216,32 +197,25 @@ private fun FileRowCard(item: FileItem, onOpen: (String) -> Unit) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(icon, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(end = 12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.name, style = MaterialTheme.typography.bodyMedium, color = ClipboxColors.TextPrimary, maxLines = 1)
-                Text("${item.date} • ${item.size}", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
+                Text(item.title, style = MaterialTheme.typography.bodyMedium, color = ClipboxColors.TextPrimary, maxLines = 1)
+                Text(item.name, style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary, maxLines = 1)
             }
-            Text("⋮", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.TextSecondary, modifier = Modifier.padding(start = 8.dp))
+            Text("▶", style = MaterialTheme.typography.titleMedium, color = ClipboxColors.Primary, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
 
 @Composable
-private fun FileGridCard(item: FileItem, onOpen: (String) -> Unit) {
+private fun FileGridCard(item: FileItem, onOpen: (String, String, Boolean) -> Unit) {
     Card(
-        modifier = Modifier.padding(4.dp).clickable { onOpen(item.uri) },
+        modifier = Modifier.padding(4.dp).clickable { onOpen(item.uri, item.title, item.isVideo) },
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                when {
-                    item.name.endsWith(".mp4") -> "🎬"
-                    item.name.endsWith(".mp3") -> "🎵"
-                    item.name.endsWith(".pdf") -> "📄"
-                    else -> "📄"
-                },
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(item.name, style = MaterialTheme.typography.bodySmall, maxLines = 2, minLines = 2)
+            Text(if (item.isVideo) "🎬" else "🎵", style = MaterialTheme.typography.headlineMedium)
+            Text(item.title, style = MaterialTheme.typography.bodySmall, maxLines = 2, minLines = 2)
+            Text(if (item.isVideo) "動画" else "音楽", style = MaterialTheme.typography.bodySmall, color = ClipboxColors.TextSecondary)
         }
     }
 }

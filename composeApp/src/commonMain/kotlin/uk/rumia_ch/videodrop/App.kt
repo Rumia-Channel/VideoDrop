@@ -3,7 +3,6 @@ package uk.rumia_ch.videodrop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,11 +31,17 @@ import uk.rumia_ch.videodrop.ui.BrowserScreen
 import uk.rumia_ch.videodrop.ui.DownloadScreen
 import uk.rumia_ch.videodrop.ui.MediaDetailScreen
 import uk.rumia_ch.videodrop.ui.MyCollectionScreen
+import uk.rumia_ch.videodrop.ui.PlayerScreen
 import uk.rumia_ch.videodrop.ui.Screen
 import uk.rumia_ch.videodrop.ui.SettingsScreen
 import uk.rumia_ch.videodrop.ui.VideoDropViewModel
-import uk.rumia_ch.videodrop.ui.theme.ClipboxTheme
 import uk.rumia_ch.videodrop.ui.theme.ClipboxColors
+import uk.rumia_ch.videodrop.ui.theme.ClipboxTheme
+
+private fun isYouTubeUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    return lower.contains("youtube.com") || lower.contains("youtu.be") || lower.contains("m.youtube.com")
+}
 
 @Composable
 fun App(
@@ -49,8 +54,11 @@ fun App(
         var pendingUrl by remember { mutableStateOf<String?>(null) }
         var showAreYouOk by remember { mutableStateOf(false) }
         var showReally by remember { mutableStateOf(false) }
+        var showNotYouTube by remember { mutableStateOf(false) }
+        var playerUri by remember { mutableStateOf("") }
+        var playerTitle by remember { mutableStateOf("") }
+        var playerIsVideo by remember { mutableStateOf(true) }
 
-        // When analyze succeeds, auto go to Detail (Clipbox: after + → save flow, then view)
         val analyzeState by viewModel.analyzeState.collectAsState()
         LaunchedEffect(analyzeState) {
             if (analyzeState is AnalyzeState.Success) {
@@ -68,11 +76,24 @@ fun App(
                 when (screen) {
                     Screen.Browser -> BrowserScreen(
                         onClipRequest = { url ->
-                            pendingUrl = url
-                            showAreYouOk = true
+                            if (!isYouTubeUrl(url)) {
+                                pendingUrl = url
+                                showNotYouTube = true
+                            } else {
+                                pendingUrl = url
+                                showAreYouOk = true
+                            }
                         }
                     )
-                    Screen.MyCollection -> MyCollectionScreen(viewModel = viewModel)
+                    Screen.MyCollection -> MyCollectionScreen(
+                        viewModel = viewModel,
+                        onOpenFile = { uri, title, isVideo ->
+                            playerUri = uri
+                            playerTitle = title
+                            playerIsVideo = isVideo
+                            screen = Screen.Player
+                        }
+                    )
                     Screen.Detail -> MediaDetailScreen(
                         viewModel = viewModel,
                         onDownload = { sel, out ->
@@ -86,40 +107,59 @@ fun App(
                         },
                         onBack = { screen = Screen.Browser }
                     )
+                    Screen.Player -> PlayerScreen(
+                        uri = playerUri,
+                        title = playerTitle,
+                        isVideo = playerIsVideo,
+                        onBack = { screen = Screen.MyCollection }
+                    )
                     Screen.Download -> DownloadScreen(viewModel = viewModel, onBack = { screen = Screen.MyCollection })
                     Screen.Settings -> SettingsScreen(viewModel = viewModel, onBack = { screen = Screen.Browser })
                 }
             }
 
-            // Clipbox-like bottom nav: ブラウザ / マイコレクション / 設定
-            NavigationBar(containerColor = ClipboxColors.Surface) {
-                NavigationBarItem(
-                    selected = screen == Screen.Browser,
-                    onClick = { screen = Screen.Browser },
-                    icon = { Text("🌐") },
-                    label = { Text("ブラウザ") }
-                )
-                NavigationBarItem(
-                    selected = screen == Screen.MyCollection || screen == Screen.Download,
-                    onClick = { screen = Screen.MyCollection },
-                    icon = { Text("📁") },
-                    label = { Text("マイコレクション") }
-                )
-                NavigationBarItem(
-                    selected = screen == Screen.Settings,
-                    onClick = { screen = Screen.Settings },
-                    icon = { Text("⚙") },
-                    label = { Text("設定") }
-                )
+            // Bottom nav: Clipbox流 ブラウザ / マイコレクション / 設定
+            // Player と Detail はフルスクリーンなので BottomNav は表示しない
+            if (screen != Screen.Player && screen != Screen.Detail) {
+                NavigationBar(containerColor = ClipboxColors.Surface) {
+                    NavigationBarItem(
+                        selected = screen == Screen.Browser,
+                        onClick = { screen = Screen.Browser },
+                        icon = { Text("🌐") },
+                        label = { Text("ブラウザ") }
+                    )
+                    NavigationBarItem(
+                        selected = screen == Screen.MyCollection || screen == Screen.Download || screen == Screen.Player,
+                        onClick = { screen = Screen.MyCollection },
+                        icon = { Text("📁") },
+                        label = { Text("マイコレクション") }
+                    )
+                    NavigationBarItem(
+                        selected = screen == Screen.Settings,
+                        onClick = { screen = Screen.Settings },
+                        icon = { Text("⚙") },
+                        label = { Text("設定") }
+                    )
+                }
             }
         }
 
-        // Clipbox flow: ＋ → Are you ok? → Really? → 保存先 (here format selection)
+        if (showNotYouTube && pendingUrl != null) {
+            AlertDialog(
+                onDismissRequest = { showNotYouTube = false; pendingUrl = null },
+                title = { Text("YouTubeのみ対応") },
+                text = { Text("このアプリはブラウザからYouTubeの動画を直接ダウンロードする機能に特化しています。\n\nURL: ${pendingUrl}\n\nYouTubeの動画ページで「＋ クリップ」を押してください。PDF等の文書ビューアーは対象外です。") },
+                confirmButton = {
+                    TextButton(onClick = { showNotYouTube = false; pendingUrl = null }) { Text("OK") }
+                }
+            )
+        }
+
         if (showAreYouOk && pendingUrl != null) {
             AlertDialog(
                 onDismissRequest = { showAreYouOk = false },
                 title = { Text("Are you ok?") },
-                text = { Text("このページをクリップしますか？\n${pendingUrl}\n\nClipbox流: 動画は一度再生してから「＋」で検出率UP") },
+                text = { Text("このYouTubeページをクリップしますか？\n${pendingUrl}\n\nヒント: 動画は一度再生してから「＋」で検出率UP") },
                 confirmButton = {
                     TextButton(onClick = {
                         showAreYouOk = false
@@ -135,12 +175,11 @@ fun App(
             AlertDialog(
                 onDismissRequest = { showReally = false },
                 title = { Text("Really?") },
-                text = { Text("本当にクリップしますか？\nyt-dlpで解析を開始します。") },
+                text = { Text("YouTubeを解析して、動画 or 音楽 の保存形式を選べます。\n保存後はマイコレクションで再生できます。") },
                 confirmButton = {
                     TextButton(onClick = {
                         showReally = false
                         val u = pendingUrl!!
-                        // Trigger analyze; on success LaunchedEffect navigates to Detail
                         viewModel.analyze(u)
                     }) { Text("クリップ") }
                 },

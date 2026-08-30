@@ -4,6 +4,7 @@ enum class Screen {
     Browser,
     MyCollection,
     Detail,
+    Player,
     Download,
     Settings
 }
